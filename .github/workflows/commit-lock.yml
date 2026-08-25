@@ -1,0 +1,37 @@
+name: Commit lockfile
+
+on:
+  push:
+    branches:
+      - feat/v0.2-security-routing
+    paths:
+      - '.github/workflows/commit-lock.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/v0.2-security-routing
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Generate package-lock.json
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Commit package-lock.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git diff --cached --quiet && exit 0
+          git commit -m "build: add npm lockfile"
+          git push origin HEAD:feat/v0.2-security-routing
