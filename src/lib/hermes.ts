@@ -2,15 +2,21 @@ export type HermesMode = "live" | "mock";
 
 const baseUrl = (process.env.HERMES_BASE_URL || "http://127.0.0.1:8642").replace(/\/$/, "");
 const apiKey = process.env.HERMES_API_KEY || "";
+const pathPrefix = normalizePathPrefix(process.env.HERMES_PATH_PREFIX || "");
 
 export function hermesMode(): HermesMode {
   return process.env.HERMES_MOCK_MODE === "false" && apiKey ? "live" : "mock";
 }
 
-function profilePath(path: string) {
-  const profile = process.env.HERMES_PROFILE?.trim();
-  if (!profile) return path;
-  return `/p/${encodeURIComponent(profile)}${path}`;
+function normalizePathPrefix(prefix: string) {
+  const trimmed = prefix.trim();
+  if (!trimmed) return "";
+  return `/${trimmed.replace(/^\/+|\/+$/g, "")}`;
+}
+
+function targetPath(path: string) {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  return `${pathPrefix}${normalized}`;
 }
 
 export async function hermesFetch(path: string, init: RequestInit = {}) {
@@ -20,7 +26,7 @@ export async function hermesFetch(path: string, init: RequestInit = {}) {
   if (!headers.has("Content-Type") && init.body) headers.set("Content-Type", "application/json");
   const sessionKey = process.env.HERMES_SESSION_KEY;
   if (sessionKey) headers.set("X-Hermes-Session-Key", sessionKey);
-  return fetch(`${baseUrl}${profilePath(path)}`, { ...init, headers, cache: "no-store" });
+  return fetch(`${baseUrl}${targetPath(path)}`, { ...init, headers, cache: "no-store" });
 }
 
 export function mockRun(input: string) {
