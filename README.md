@@ -8,7 +8,8 @@ v0.3 introduces `/brain`: the first control plane for evolving Hermes investment
 
 Implemented in this release:
 
-- Hermes Brain Console with explicit `his-research` and read-only `his-production` modes.
+- Hermes Brain Console for an explicitly isolated `his-research` profile.
+- Production brain inspection through deterministic read endpoints; Brain Studio does not start production agent runs in v0.3.
 - Server-side profile-aware Hermes transport. Browser code never receives Hermes credentials.
 - Real deterministic discovery from Hermes `GET /v1/skills`, `GET /v1/toolsets`, `GET /v1/capabilities`, and `GET /v1/models` when the production gateway exposes them.
 - Brain Status and Capability Explorer with truthful loading/offline/not-configured states.
@@ -29,8 +30,8 @@ Browser
       -> protected /api/hermes/*, /api/brain/* and /api/risk/*
           -> server-side Hermes credentials
               -> Hermes gateways/profiles
-                  -> his-production
-                  -> his-research (optional, isolated)
+                  -> his-production (deterministic inspection only in Brain Studio)
+                  -> his-research (optional, isolated agent runs)
                   -> his-builder (optional, mutation disabled in v0.3)
 
 Brain evolution target:
@@ -77,22 +78,23 @@ HERMES_PATH_PREFIX=/p/his-production
 
 ## Brain Studio profile isolation
 
-Research and builder profiles are **not** assumed to exist. Brain Studio treats them as `NOT CONFIGURED` until an explicit base URL or path prefix is set.
+Research and builder profiles are **not** assumed to exist. Brain Studio treats them as `NOT CONFIGURED` until an explicit base URL or path prefix is set **and** the profile has its own API key.
 
-For a shared multiplex gateway:
+For a shared multiplex gateway the network origin may be the same as production, but named profile prefixes still use profile-specific keys:
 
 ```bash
 HERMES_RESEARCH_PATH_PREFIX=/p/his-research
-HERMES_BUILDER_PATH_PREFIX=/p/his-builder
-```
+HERMES_RESEARCH_API_KEY=research-profile-api-server-key
 
-The production base URL/API key are reused unless separate `HERMES_RESEARCH_BASE_URL`, `HERMES_RESEARCH_API_KEY`, `HERMES_BUILDER_BASE_URL`, or `HERMES_BUILDER_API_KEY` values are supplied.
+HERMES_BUILDER_PATH_PREFIX=/p/his-builder
+HERMES_BUILDER_API_KEY=builder-profile-api-server-key
+```
 
 A dedicated research gateway can instead use:
 
 ```bash
 HERMES_RESEARCH_BASE_URL=https://research-hermes.example.com
-HERMES_RESEARCH_API_KEY=server-only-secret
+HERMES_RESEARCH_API_KEY=research-profile-api-server-key
 HERMES_RESEARCH_PATH_PREFIX=
 ```
 
@@ -105,9 +107,10 @@ Builder configuration may be present for status visibility, but v0.3 rejects bui
 3. Owner sessions are signed, HttpOnly, `SameSite=Strict`, and `Secure` in production.
 4. `/api/hermes/*`, `/api/brain/*`, and `/api/risk/*` require a valid owner session.
 5. Protected mutations require same-origin browser context and use the existing best-effort per-instance mutation rate limit.
-6. Research is profile-isolated: Brain Studio does not silently fall back from `his-research` to production unless an explicit research path/base is configured.
-7. Production console instructions are read-only; no v0.3 Brain API can mutate production capabilities.
-8. Broker execution remains hard-locked unless a separate execution-control service is configured.
+6. Research is profile-isolated: Brain Studio never falls back to the production API key for `his-research` or `his-builder`.
+7. Brain Studio does not start production agent runs in v0.3 because the Hermes API server exposes a powerful toolset; prompt-level “read only” instructions are not treated as a sufficient production security boundary.
+8. No v0.3 Brain API can approve, promote, rollback or mutate production capabilities.
+9. Broker execution remains hard-locked unless a separate execution-control service is configured.
 
 ## Hermes API routes used
 
@@ -120,12 +123,15 @@ Existing OS:
 - `POST /v1/runs/:runId/approval`
 - `GET /api/jobs`
 
-Brain Studio (when supported by the connected Hermes gateway):
+Brain Studio production inspection:
 
 - `GET /v1/skills`
 - `GET /v1/toolsets`
 - `GET /v1/capabilities`
 - `GET /v1/models`
+
+Brain Studio research, only after `his-research` is explicitly configured:
+
 - `POST /v1/runs`
 - `GET /v1/runs/:runId`
 
