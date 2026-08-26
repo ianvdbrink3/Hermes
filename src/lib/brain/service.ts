@@ -11,12 +11,10 @@ import type {
 } from "@/lib/brain/types";
 
 type HermesModelsResponse = { data?: Array<{ id?: string }> };
-
-const improvementStoreKey = Symbol.for("hermes.brain.improvements");
-type BrainGlobal = typeof globalThis & { [improvementStoreKey]?: Map<string, ImprovementRequest> };
+type BrainGlobal = typeof globalThis & { __hermesBrainImprovements?: Map<string, ImprovementRequest> };
 const brainGlobal = globalThis as BrainGlobal;
-const improvementStore = brainGlobal[improvementStoreKey] || new Map<string, ImprovementRequest>();
-brainGlobal[improvementStoreKey] = improvementStore;
+const improvementStore = brainGlobal.__hermesBrainImprovements || new Map<string, ImprovementRequest>();
+brainGlobal.__hermesBrainImprovements = improvementStore;
 
 function extractArray<T>(value: unknown): T[] {
   if (Array.isArray(value)) return value as T[];
@@ -37,7 +35,6 @@ export async function getBrainStatus(): Promise<BrainStatus> {
     safeHermesJson<HermesModelsResponse>("production", "/v1/models"),
   ]);
 
-  const productionConfig = getBrainProfileConfig("production");
   const researchConfig = getBrainProfileConfig("research");
   const builderConfig = getBrainProfileConfig("builder");
 
