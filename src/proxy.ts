@@ -26,7 +26,11 @@ export async function proxy(request: NextRequest) {
   const token = request.cookies.get(SESSION_COOKIE)?.value;
   if (!(await verifySessionToken(token, auth.secret))) return unauthorized(request);
 
-  const protectedApi = request.nextUrl.pathname.startsWith("/api/hermes/") || request.nextUrl.pathname.startsWith("/api/risk/");
+  const protectedApi =
+    request.nextUrl.pathname.startsWith("/api/hermes/") ||
+    request.nextUrl.pathname.startsWith("/api/risk/") ||
+    request.nextUrl.pathname.startsWith("/api/brain/");
+
   if (protectedApi && isMutatingRequest(request)) {
     if (!isSameOriginRequest(request)) {
       return NextResponse.json({ error: "CSRF validation failed" }, { status: 403 });
@@ -50,6 +54,7 @@ export const config = {
   matcher: [
     "/api/hermes/:path*",
     "/api/risk/:path*",
+    "/api/brain/:path*",
     "/((?!api/auth|login|_next/static|_next/image|favicon.ico).*)",
   ],
 };
