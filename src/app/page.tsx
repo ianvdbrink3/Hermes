@@ -5,6 +5,6 @@ import styles from "./home.module.css";
 export default function Home() {
   return <>
     <InvestmentOS />
-    <Link href="/brain" className={styles.brainLink}>Brain Studio <span>INTELLIGENCE →</span></Link>
+    <Link href="/brain" className={styles.brainLink}>Hermes Control <span>BRAIN →</span></Link>
   </>;
 }
