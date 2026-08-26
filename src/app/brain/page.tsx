@@ -1,5 +1,5 @@
-import { HermesControlLayer } from "@/components/hermes-control-layer";
+import { HermesControlV033 } from "@/components/hermes-control-v033";
 
 export default function BrainPage() {
-  return <HermesControlLayer />;
+  return <HermesControlV033 />;
 }
