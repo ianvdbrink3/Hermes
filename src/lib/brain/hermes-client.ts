@@ -64,29 +64,45 @@ function targetPath(config: ProfileConfig, path: string) {
   return `${config.pathPrefix}${normalized}`;
 }
 
-export async function brainHermesFetch(environment: BrainEnvironment, path: string, init: RequestInit = {}) {
-  const config = getBrainProfileConfig(environment);
-  if (!config.configured) {
-    throw new Error(`${config.profile} is not configured`);
-  }
-
+function requestHeaders(config: ProfileConfig, init: RequestInit) {
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${config.apiKey}`);
   headers.set("X-Hermes-Session-Key", config.sessionKey);
   if (!headers.has("Content-Type") && init.body) headers.set("Content-Type", "application/json");
+  return headers;
+}
+
+export async function brainHermesFetch(environment: BrainEnvironment, path: string, init: RequestInit = {}) {
+  const config = getBrainProfileConfig(environment);
+  if (!config.configured) throw new Error(`${config.profile} is not configured`);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
   try {
     return await fetch(`${config.baseUrl}${targetPath(config, path)}`, {
       ...init,
-      headers,
+      headers: requestHeaders(config, init),
       cache: "no-store",
       signal: init.signal || controller.signal,
     });
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function brainHermesStreamFetch(environment: BrainEnvironment, path: string, init: RequestInit = {}) {
+  const config = getBrainProfileConfig(environment);
+  if (!config.configured) throw new Error(`${config.profile} is not configured`);
+
+  const headers = requestHeaders(config, init);
+  headers.set("Accept", "text/event-stream");
+
+  return fetch(`${config.baseUrl}${targetPath(config, path)}`, {
+    ...init,
+    headers,
+    cache: "no-store",
+    signal: init.signal,
+  });
 }
 
 export function classifyHermesResponse(status: number): ConnectionState {
