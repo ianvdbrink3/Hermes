@@ -45,13 +45,14 @@ export function getBrainProfileConfig(environment: BrainEnvironment): ProfileCon
   const sessionKeyName = environment === "research" ? "HERMES_RESEARCH_SESSION_KEY" : "HERMES_BUILDER_SESSION_KEY";
   const explicitBase = normalizeBaseUrl(process.env[baseKey] || "");
   const explicitPrefix = normalizePrefix(process.env[prefixKey] || "");
-  const configured = Boolean((explicitBase || explicitPrefix) && (process.env[apiKeyName] || productionKey));
+  const profileApiKey = process.env[apiKeyName] || "";
+  const configured = Boolean((explicitBase || explicitPrefix) && profileApiKey && (explicitBase || productionBase));
 
   return {
     environment,
     profile: environment === "research" ? "his-research" : "his-builder",
     baseUrl: explicitBase || productionBase,
-    apiKey: process.env[apiKeyName] || productionKey,
+    apiKey: profileApiKey,
     pathPrefix: explicitPrefix,
     sessionKey: process.env[sessionKeyName] || `agent:investment:brain:${environment}`,
     configured,
