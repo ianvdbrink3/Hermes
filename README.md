@@ -4,6 +4,24 @@ A protected web control plane for **Hermes Agent** investment workflows. The OS 
 
 The architectural rule is simple: **Hermes is the source of truth for its investment plan, sessions, research, backtests, skills, files and self-improvement. The web OS is the cockpit around Hermes, not a second investment brain.**
 
+## v0.3.4 — System Readiness
+
+`/brain/system` is the activation and diagnostics center for the Hermes VPS cutover.
+
+It adds:
+
+- read-only automatic checks for OS authentication and the production mutation guard;
+- production gateway, sessions, models, skills, toolsets and capabilities checks;
+- research gateway, sessions and capabilities checks;
+- explicit visibility for whether `his-production`, `his-research` and optional `his-builder` are configured;
+- a visible OS version + Git commit indicator from `/brain`, so immutable/old Vercel deployments are immediately recognizable;
+- manual verification state for streaming, conversation persistence, Current Plan and the final Mac-off continuity test;
+- a seven-phase VPS cutover runbook that preserves the existing Hermes brain before migration.
+
+Diagnostics never expose API keys or passwords and never create sessions or run Hermes research automatically. Interactive validation remains an explicit user action.
+
+See `docs/hermes-vps-cutover-runbook.md` for the operational cutover sequence.
+
 ## v0.3.1 — Hermes Control Layer
 
 `/brain` is now the primary Hermes-native control workspace.
@@ -60,6 +78,7 @@ External deterministic guards own execution safety.
 ## Brain routes
 
 - `/brain` — Hermes Control
+- `/brain/system` — System Readiness / Activation Center
 - `/brain/lab` — v0.3 Improvement Lab / capability explorer
 
 ## Local development
