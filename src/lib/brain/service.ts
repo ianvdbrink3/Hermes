@@ -47,14 +47,14 @@ export async function getBrainStatus(): Promise<BrainStatus> {
       message: capabilitiesResult.message,
     },
     research: {
-      state: researchConfig.configured ? "connected" : "not_configured",
+      state: researchConfig.configured ? "degraded" : "not_configured",
       profile: "his-research",
-      message: researchConfig.configured ? "Configured; live health is checked when used." : "Research profile is not connected yet.",
+      message: researchConfig.configured ? "Configured, but connectivity is verified only when a research run starts." : "Research profile is not connected yet.",
     },
     builder: {
-      state: builderConfig.configured ? "connected" : "not_configured",
+      state: builderConfig.configured ? "degraded" : "not_configured",
       profile: "his-builder",
-      message: builderConfig.configured ? "Configured; production promotion remains disabled." : "Builder profile is not connected yet.",
+      message: builderConfig.configured ? "Configured, but builder execution remains disabled in v0.3." : "Builder profile is not connected yet.",
     },
     skills: {
       state: skillsResult.state,
