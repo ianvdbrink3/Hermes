@@ -72,8 +72,6 @@ type StatusResponse = BrainStatus & {
   productionPolicy?: { promotionEnabled: boolean; builderMutationEnabled: boolean; explanation: string };
 };
 
-const TERMINAL_STATES = new Set(["completed", "failed", "cancelled", "stopped"]);
-
 const quickActions = [
   {
     label: "Continue current plan",
@@ -201,18 +199,10 @@ function eventActivity(type: string, payload: Record<string, unknown>): Activity
   const tool = String(payload.tool_name || payload.name || asRecord(payload.tool)?.name || "tool");
   const at = new Date().toISOString();
   if (lower.includes("assistant.delta") || lower.includes("token") || lower === "message") return null;
-  if (lower.includes("tool.started") || lower.includes("tool.start")) {
-    return { id: `${Date.now()}-${Math.random()}`, type: normalized, label: `${tool} started`, detail: shortText(payload.arguments ?? payload.input ?? payload.args), at, state: "live" };
-  }
-  if (lower.includes("tool.completed") || lower.includes("tool.complete")) {
-    return { id: `${Date.now()}-${Math.random()}`, type: normalized, label: `${tool} completed`, detail: shortText(payload.summary ?? payload.result ?? payload.output), at, state: "done" };
-  }
-  if (lower.includes("subagent.start")) {
-    return { id: `${Date.now()}-${Math.random()}`, type: normalized, label: "Subagent started", detail: shortText(payload.task ?? payload.summary ?? payload), at, state: "live" };
-  }
-  if (lower.includes("subagent.complete")) {
-    return { id: `${Date.now()}-${Math.random()}`, type: normalized, label: "Subagent completed", detail: shortText(payload.summary ?? payload), at, state: String(payload.status || "").toLowerCase() === "failed" ? "error" : "done" };
-  }
+  if (lower.includes("tool.started") || lower.includes("tool.start")) return { id: `${Date.now()}-${Math.random()}`, type: normalized, label: `${tool} started`, detail: shortText(payload.arguments ?? payload.input ?? payload.args), at, state: "live" };
+  if (lower.includes("tool.completed") || lower.includes("tool.complete")) return { id: `${Date.now()}-${Math.random()}`, type: normalized, label: `${tool} completed`, detail: shortText(payload.summary ?? payload.result ?? payload.output), at, state: "done" };
+  if (lower.includes("subagent.start")) return { id: `${Date.now()}-${Math.random()}`, type: normalized, label: "Subagent started", detail: shortText(payload.task ?? payload.summary ?? payload), at, state: "live" };
+  if (lower.includes("subagent.complete")) return { id: `${Date.now()}-${Math.random()}`, type: normalized, label: "Subagent completed", detail: shortText(payload.summary ?? payload), at, state: String(payload.status || "").toLowerCase() === "failed" ? "error" : "done" };
   if (lower.includes("run.completed")) return { id: `${Date.now()}-${Math.random()}`, type: normalized, label: "Hermes turn completed", detail: shortText(payload.output ?? payload.summary), at, state: "done" };
   if (lower.includes("run.failed") || lower.includes("error")) return { id: `${Date.now()}-${Math.random()}`, type: normalized, label: "Hermes event failed", detail: shortText(payload.error ?? payload.message ?? payload), at, state: "error" };
   if (lower.includes("run.start") || lower.includes("run.created")) return { id: `${Date.now()}-${Math.random()}`, type: normalized, label: "Hermes turn started", detail: shortText(payload), at, state: "live" };
@@ -302,11 +292,9 @@ export function HermesControlLayer() {
 
   const selectedSession = useMemo(() => sessions.find((item) => sessionId(item) === selectedId) || null, [sessions, selectedId]);
   const interactive = environment === "research";
-  const profileState = environment === "research" ? status?.research : status?.production;
 
   const combinedActivity = useMemo(() => {
-    const historical = historicalActivity(messages);
-    const all = [...historical, ...activity];
+    const all = [...historicalActivity(messages), ...activity];
     const seen = new Set<string>();
     return all.filter((item) => {
       const key = `${item.type}|${item.label}|${item.detail || ""}|${item.at}`;
@@ -390,9 +378,7 @@ export function HermesControlLayer() {
     }
   }
 
-  useEffect(() => {
-    loadStatus();
-  }, []);
+  useEffect(() => { loadStatus(); }, []);
 
   useEffect(() => {
     setSearch("");
@@ -432,12 +418,6 @@ export function HermesControlLayer() {
     const id = sessionId(created);
     if (id) setSelectedId(id);
     return id;
-  }
-
-  async function ensureResearchSession() {
-    if (environment !== "research") setEnvironment("research");
-    if (environment === "research" && selectedId) return selectedId;
-    return createResearchSession();
   }
 
   function appendActivity(item: ActivityItem | null) {
@@ -490,8 +470,7 @@ export function HermesControlLayer() {
     }
     if (!id) return;
 
-    const optimistic: HermesMessage = { id: `local-${Date.now()}`, role: "user", content: clean, created_at: new Date().toISOString() };
-    setMessages((current) => [...current, optimistic]);
+    setMessages((current) => [...current, { id: `local-${Date.now()}`, role: "user", content: clean, created_at: new Date().toISOString() }]);
     setDraft("");
     setStreaming(true);
     setStreamText("");
@@ -499,7 +478,6 @@ export function HermesControlLayer() {
     if (options?.mission) setMissionPending(true);
     appendActivity({ id: `turn-${Date.now()}`, type: "turn.start", label: "Instruction sent to Hermes", detail: shortText(clean, 160), at: new Date().toISOString(), state: "live" });
 
-    let finalText = "";
     try {
       const response = await fetch(`/api/brain/sessions/${encodeURIComponent(id)}/chat/stream?environment=research`, {
         method: "POST",
@@ -535,16 +513,13 @@ export function HermesControlLayer() {
           const block = buffer.slice(0, boundary);
           const delimiterMatch = buffer.slice(boundary).match(/^\r?\n\r?\n/);
           buffer = buffer.slice(boundary + (delimiterMatch?.[0].length || 2));
-          this;
           parseEventBlock(block, appendDelta, complete);
           boundary = buffer.search(/\r?\n\r?\n/);
         }
       }
       if (buffer.trim()) parseEventBlock(buffer, appendDelta, complete);
-      finalText = assistantText.trim();
-      if (finalText) {
-        setMessages((current) => [...current, { id: `stream-${Date.now()}`, role: "assistant", content: finalText, created_at: new Date().toISOString() }]);
-      }
+      const finalText = assistantText.trim();
+      if (finalText) setMessages((current) => [...current, { id: `stream-${Date.now()}`, role: "assistant", content: finalText, created_at: new Date().toISOString() }]);
       if (options?.mission && finalText) {
         const snapshot = parseMission(finalText, id);
         setMission(snapshot);
@@ -658,14 +633,8 @@ export function HermesControlLayer() {
     <aside className={styles.sidebar}>
       <Link href="/" className={styles.brand}><span>H</span><div><strong>HERMES</strong><small>INVESTMENT OS</small></div></Link>
       <nav>
-        <span>OPERATIONS</span>
-        <Link href="/">Command Center</Link>
-        <span>INTELLIGENCE</span>
-        <div className={styles.activeNav}>Hermes Control <b>v0.3.1</b></div>
-        <Link href="/brain/lab">Improvement Lab</Link>
-        <a href="#mission">Current Plan</a>
-        <a href="#activity">Activity</a>
-        <a href="#artifacts">Artifacts</a>
+        <span>OPERATIONS</span><Link href="/">Command Center</Link>
+        <span>INTELLIGENCE</span><div className={styles.activeNav}>Hermes Control <b>v0.3.1</b></div><Link href="/brain/lab">Improvement Lab</Link><a href="#mission">Current Plan</a><a href="#activity">Activity</a><a href="#artifacts">Artifacts</a>
       </nav>
       <div className={styles.safetyCard}><span>HARD BOUNDARY</span><strong>EXECUTION OUTSIDE BRAIN</strong><p>Research can think, use tools and continue its own plan. Production sessions remain inspect-only here.</p></div>
     </aside>
@@ -741,14 +710,7 @@ export function HermesControlLayer() {
             <header><div><span className={styles.eyebrow}>CURRENT PLAN</span><h2>Mission Control</h2></div>{interactive && <button disabled={streaming || missionPending} onClick={() => sendToHermes(MISSION_PROMPT, { mission: true })}>{missionPending ? "…" : "↻"}</button>}</header>
             {!interactive && <div className={styles.cardEmpty}><strong>Hermes summary requires Research.</strong><p>Use production session history as the source view. Tonight, connect/migrate his-research and let Hermes summarize its own plan there.</p></div>}
             {interactive && !mission && <div className={styles.cardEmpty}><strong>No cached Hermes plan snapshot.</strong><p>Refresh to make Hermes inspect its own sessions, memory, files and recent work. The OS will not invent this state.</p></div>}
-            {mission && <div className={styles.missionGrid}>
-              <div className={styles.missionPrimary}><span>CURRENT OBJECTIVE</span><p>{mission.objective}</p></div>
-              <div><span>IN PROGRESS</span><p>{mission.inProgress}</p></div>
-              <div><span>NEXT</span><p>{mission.next}</p></div>
-              <div><span>BLOCKERS</span><p>{mission.blockers}</p></div>
-              <details><summary>Completed & context</summary><h4>COMPLETED</h4><p>{mission.completed}</p><h4>IMPORTANT CONTEXT</h4><p>{mission.context}</p></details>
-              <small>Hermes snapshot · {formatTime(mission.at)}</small>
-            </div>}
+            {mission && <div className={styles.missionGrid}><div className={styles.missionPrimary}><span>CURRENT OBJECTIVE</span><p>{mission.objective}</p></div><div><span>IN PROGRESS</span><p>{mission.inProgress}</p></div><div><span>NEXT</span><p>{mission.next}</p></div><div><span>BLOCKERS</span><p>{mission.blockers}</p></div><details><summary>Completed & context</summary><h4>COMPLETED</h4><p>{mission.completed}</p><h4>IMPORTANT CONTEXT</h4><p>{mission.context}</p></details><small>Hermes snapshot · {formatTime(mission.at)}</small></div>}
           </section>
 
           <section id="activity" className={styles.railCard}>
