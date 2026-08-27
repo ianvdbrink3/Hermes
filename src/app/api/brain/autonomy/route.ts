@@ -35,6 +35,47 @@ function findHeartbeat(jobs: JsonRecord[]) {
   };
 }
 
+function humanGateIsClear(value: unknown) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[.!?:;,]+$/g, "")
+    .trim();
+
+  return [
+    "",
+    "none",
+    "—",
+    "-",
+    "n/a",
+    "null",
+    "nothing",
+    "geen",
+    "no blockers",
+    "no human gate",
+    "no human gates",
+    "none required",
+  ].includes(normalized);
+}
+
+function normalizeAutonomySnapshot(snapshot: JsonRecord): JsonRecord {
+  const currentValue = snapshot.current;
+  if (!currentValue || typeof currentValue !== "object" || Array.isArray(currentValue)) return snapshot;
+
+  const current = currentValue as JsonRecord;
+  const needsHuman = current.needs_human;
+  if (!humanGateIsClear(needsHuman)) return snapshot;
+
+  return {
+    ...snapshot,
+    mode: "autonomous",
+    current: {
+      ...current,
+      needs_human: "None",
+    },
+  };
+}
+
 async function fetchHeartbeat() {
   try {
     const response = await brainHermesFetch("research", "/api/jobs");
@@ -93,7 +134,7 @@ export async function GET() {
       );
     }
 
-    const snapshot = (await stateResponse.json()) as JsonRecord;
+    const snapshot = normalizeAutonomySnapshot((await stateResponse.json()) as JsonRecord);
     return NextResponse.json({ connected: true, state: "connected", snapshot, heartbeat }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json(
