@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { brainHermesFetch, getBrainProfileConfig } from "@/lib/brain/hermes-client";
 import { clampInteger, cleanSessionId, parseControlEnvironment } from "@/lib/brain/control";
+import { normalizeHermesTimestamps } from "@/lib/brain/normalize-hermes-time";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
   try {
     const response = await brainHermesFetch(environment, `/api/sessions/${encodeURIComponent(id)}/messages?${params}`);
     const payload = await response.json().catch(() => ({ error: `Hermes returned HTTP ${response.status}` }));
-    return NextResponse.json({ environment, profile: config.profile, payload }, { status: response.status });
+    return NextResponse.json({ environment, profile: config.profile, payload: normalizeHermesTimestamps(payload) }, { status: response.status });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to read Hermes messages" }, { status: 502 });
   }
