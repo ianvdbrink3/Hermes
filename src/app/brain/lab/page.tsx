@@ -1,5 +1,5 @@
-import { BrainStudio } from "@/components/brain-studio";
+import { redirect } from "next/navigation";
 
 export default function BrainLabPage() {
-  return <BrainStudio />;
+  redirect("/instellingen/geavanceerd");
 }

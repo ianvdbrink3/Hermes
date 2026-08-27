@@ -1,5 +1,5 @@
-export const OS_VERSION = "0.4.0";
-export const OS_RELEASE = "Autonomy Control Center";
+export const OS_VERSION = "0.5.0";
+export const OS_RELEASE = "Simple Hermes";
 
 export function getDeploymentMetadata() {
   const commit = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || "local";

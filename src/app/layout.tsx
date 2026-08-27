@@ -3,12 +3,12 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Hermes Investment OS",
-  description: "Control plane for Hermes Agent investment workflows",
+  description: "Eenvoudig overzicht van Hermes onderzoek, trading en veiligheid",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="nl">
       <body>{children}</body>
     </html>
   );

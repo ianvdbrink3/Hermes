@@ -1,5 +1,5 @@
-import { HermesSystemReadiness } from "@/components/hermes-system-readiness";
+import { redirect } from "next/navigation";
 
 export default function HermesSystemPage() {
-  return <HermesSystemReadiness />;
+  redirect("/instellingen/systeem");
 }

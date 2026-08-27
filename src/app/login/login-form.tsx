@@ -29,12 +29,12 @@ export function LoginForm() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        setError(data.error || "Login failed");
+        setError(data.error || "Inloggen is niet gelukt");
         return;
       }
       window.location.assign(next);
     } catch {
-      setError("Login service is unreachable");
+      setError("De loginservice is tijdelijk niet bereikbaar");
     } finally {
       setBusy(false);
     }
@@ -44,19 +44,19 @@ export function LoginForm() {
     <section className={`${styles.card} ${configMissing ? styles.missing : ""}`}>
       <div className={styles.mark}>H</div>
       <span className={styles.eyebrow}>HERMES INVESTMENT OS</span>
-      <h1>Owner access</h1>
-      <p>Authenticate before accessing the Hermes control plane, risk controls or agent proxy.</p>
+      <h1>Toegang voor eigenaar</h1>
+      <p>Log in om je Hermes-overzicht, onderzoek en beveiligde systeemstatus te openen.</p>
       {configMissing ? (
-        <p><strong>Authentication is not configured.</strong> Set OS_ACCESS_PASSWORD and OS_SESSION_SECRET in Vercel, then redeploy.</p>
+        <p><strong>De beveiligde toegang is nog niet ingesteld.</strong> Stel OS_ACCESS_PASSWORD en OS_SESSION_SECRET in Vercel in en deploy daarna opnieuw.</p>
       ) : (
         <form className={styles.form} onSubmit={submit}>
-          <label htmlFor="password">Access password</label>
+          <label htmlFor="password">Wachtwoord</label>
           <input id="password" name="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} autoFocus />
-          <button disabled={busy || !password}>{busy ? "AUTHENTICATING…" : "ENTER OS"}</button>
+          <button disabled={busy || !password}>{busy ? "INLOGGEN…" : "OPEN HERMES"}</button>
         </form>
       )}
       {error && <p className={styles.error}>{error}</p>}
-      <div className={styles.meta}>Signed HttpOnly session · SameSite=Strict · 12-hour expiry</div>
+      <div className={styles.meta}>Beveiligde HttpOnly-sessie · SameSite=Strict · verloopt na 12 uur</div>
     </section>
   );
 }
