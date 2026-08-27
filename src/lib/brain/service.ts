@@ -28,15 +28,14 @@ function extractArray<T>(value: unknown): T[] {
 }
 
 export async function getBrainStatus(): Promise<BrainStatus> {
-  const [skillsResult, toolsetsResult, capabilitiesResult, modelsResult] = await Promise.all([
+  const [skillsResult, toolsetsResult, capabilitiesResult, modelsResult, researchHealth, builderHealth] = await Promise.all([
     safeHermesJson<unknown>("production", "/v1/skills"),
     safeHermesJson<unknown>("production", "/v1/toolsets"),
     safeHermesJson<Record<string, unknown>>("production", "/v1/capabilities"),
     safeHermesJson<HermesModelsResponse>("production", "/v1/models"),
+    safeHermesJson<Record<string, unknown>>("research", "/health"),
+    safeHermesJson<Record<string, unknown>>("builder", "/health"),
   ]);
-
-  const researchConfig = getBrainProfileConfig("research");
-  const builderConfig = getBrainProfileConfig("builder");
 
   return {
     generatedAt: new Date().toISOString(),
@@ -47,14 +46,14 @@ export async function getBrainStatus(): Promise<BrainStatus> {
       message: capabilitiesResult.message,
     },
     research: {
-      state: researchConfig.configured ? "degraded" : "not_configured",
+      state: researchHealth.state,
       profile: "his-research",
-      message: researchConfig.configured ? "Configured, but connectivity is verified only when a research run starts." : "Research profile is not connected yet.",
+      message: researchHealth.message,
     },
     builder: {
-      state: builderConfig.configured ? "degraded" : "not_configured",
+      state: builderHealth.state,
       profile: "his-builder",
-      message: builderConfig.configured ? "Configured, but builder execution remains disabled in v0.3." : "Builder profile is not connected yet.",
+      message: builderHealth.message,
     },
     skills: {
       state: skillsResult.state,
@@ -124,7 +123,7 @@ export async function startBrainRun(environment: BrainEnvironment, input: string
     return {
       run_id: `blocked_${Date.now()}`,
       status: "failed",
-      error: "Builder execution is intentionally disabled in v0.3. Brain Studio may inspect and propose, but it cannot build or mutate Hermes skills yet.",
+      error: "Builder execution is intentionally disabled in v0.4. The builder may be connected for health/readiness, but autonomous mutation stays gated until the checkpoint workflow is proven.",
       environment,
       profile: config.profile,
     };
@@ -204,5 +203,5 @@ export function getImprovement(id: string) {
 export const brainProductionPolicy = {
   promotionEnabled: false,
   builderMutationEnabled: false,
-  explanation: "v0.3 is research-only. Production changes, approvals, skill mutation and promotion are intentionally not implemented.",
+  explanation: "v0.4 adds autonomous observability and builder readiness while production changes, broker execution, builder mutation and promotion remain explicitly gated.",
 };
