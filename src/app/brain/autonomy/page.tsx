@@ -1,5 +1,5 @@
-import { AutonomyDashboard } from "@/components/autonomy-dashboard";
+import { redirect } from "next/navigation";
 
 export default function AutonomyPage() {
-  return <AutonomyDashboard />;
+  redirect("/");
 }
