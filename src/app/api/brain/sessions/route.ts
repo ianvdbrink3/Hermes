@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { brainHermesFetch, getBrainProfileConfig } from "@/lib/brain/hermes-client";
 import { clampInteger, cleanTitle, parseControlEnvironment, researchOnly } from "@/lib/brain/control";
+import { normalizeHermesTimestamps } from "@/lib/brain/normalize-hermes-time";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
   try {
     const response = await brainHermesFetch(environment, path);
     const payload = await response.json().catch(() => ({ error: `Hermes returned HTTP ${response.status}` }));
-    return NextResponse.json({ environment, profile: config.profile, payload }, { status: response.status });
+    return NextResponse.json({ environment, profile: config.profile, payload: normalizeHermesTimestamps(payload) }, { status: response.status });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Hermes sessions unavailable" }, { status: 502 });
   }
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    return NextResponse.json(await response.json().catch(() => ({})), { status: response.status });
+    return NextResponse.json(normalizeHermesTimestamps(await response.json().catch(() => ({}))), { status: response.status });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to create Hermes session" }, { status: 502 });
   }
