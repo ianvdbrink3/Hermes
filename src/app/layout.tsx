@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { OwnerActionCenter } from "@/components/owner-action-center";
 import { GitAuthorGateBridge } from "@/components/git-author-gate-bridge";
-import { PersistentHermesChatV4 } from "@/components/persistent-hermes-chat-v4";
+import { PersistentHermesChatV5 } from "@/components/persistent-hermes-chat-v5";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -16,7 +16,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         {children}
         <OwnerActionCenter />
         <GitAuthorGateBridge />
-        <PersistentHermesChatV4 />
+        <PersistentHermesChatV5 />
       </body>
     </html>
   );
