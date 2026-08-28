@@ -1,5 +1,5 @@
-export const OS_VERSION = "0.5.3";
-export const OS_RELEASE = "Deterministic Owner Actions";
+export const OS_VERSION = "0.5.4";
+export const OS_RELEASE = "Run Failure Diagnostics";
 
 export function getDeploymentMetadata() {
   const commit = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || "local";
