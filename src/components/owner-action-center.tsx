@@ -7,6 +7,7 @@ import styles from "./owner-action-center.module.css";
 
 type RecordLike = Record<string, unknown>;
 type AutonomyResponse = { connected?: boolean; snapshot?: RecordLike };
+type BrainRun = { run_id?: string; status?: string; output?: string; error?: string };
 
 type ActionExplanation = {
   title: string;
@@ -35,17 +36,22 @@ function gateIsClear(value: unknown) {
   ].includes(normalized);
 }
 
-function explainAction(gate: string, blockers: string): ActionExplanation {
+function isGitAuthorGate(gate: string, blockers: string) {
   const source = `${gate} ${blockers}`.toLowerCase();
-
-  if (
+  return (
     source.includes("git author") || source.includes("author identity") || source.includes("author name") ||
     source.includes("author email") || source.includes("identity-bearing") || source.includes("git config user") ||
     (source.includes("commit") && (source.includes("name") || source.includes("email")))
-  ) {
+  );
+}
+
+function explainAction(gate: string, blockers: string): ActionExplanation {
+  const source = `${gate} ${blockers}`.toLowerCase();
+
+  if (isGitAuthorGate(gate, blockers)) {
     return {
       title: "Kies de afzender voor autonome Git-checkpoints",
-      instruction: "Hermes heeft een echte naam en e-mailadres nodig waarmee lokale Git-checkpoints worden ondertekend. Hij heeft die gegevens bewust niet zelf verzonnen.",
+      instruction: "Hermes heeft een echte naam en e-mailadres nodig waarmee lokale Git-checkpoints worden ondertekend. Je kunt dit hieronder rechtstreeks in het OS controleren of instellen.",
       reason: "Een Git-commit krijgt een auteur. Zelf een naam of e-mailadres bedenken zou de geschiedenis misleidend maken, daarom wacht Hermes hiervoor op jou.",
       consequence: "Zonder deze keuze kan Hermes andere veilige research blijven doen, maar een geverifieerde lokale checkpoint-commit kan blijven wachten.",
       note: "Dit geeft geen brokerrechten, geen live-tradingtoestemming en geen toestemming om naar productie te pushen.",
@@ -96,6 +102,10 @@ function explainAction(gate: string, blockers: string): ActionExplanation {
   };
 }
 
+function validEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
 export function OwnerActionCenter() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -103,6 +113,11 @@ export function OwnerActionCenter() {
   const [blockers, setBlockers] = useState("");
   const [objective, setObjective] = useState("");
   const [connected, setConnected] = useState(false);
+  const [authorName, setAuthorName] = useState("");
+  const [authorEmail, setAuthorEmail] = useState("");
+  const [resolving, setResolving] = useState(false);
+  const [resolutionMessage, setResolutionMessage] = useState("");
+  const [resolutionError, setResolutionError] = useState("");
 
   const load = useCallback(async () => {
     if (pathname === "/login") return;
@@ -127,6 +142,7 @@ export function OwnerActionCenter() {
   }, [load]);
 
   const needsAction = connected && !gateIsClear(gate);
+  const gitAuthorAction = isGitAuthorGate(gate, blockers);
   const explanation = useMemo(() => explainAction(gate, blockers), [gate, blockers]);
 
   useEffect(() => {
@@ -198,6 +214,72 @@ export function OwnerActionCenter() {
     };
   }, [needsAction, pathname]);
 
+  async function resolveGitAuthor(mode: "verify" | "set") {
+    if (resolving) return;
+    const name = authorName.trim();
+    const email = authorEmail.trim();
+    if (mode === "set" && (!name || !validEmail(email))) {
+      setResolutionError("Vul een naam en een geldig e-mailadres in.");
+      return;
+    }
+
+    setResolving(true);
+    setResolutionError("");
+    setResolutionMessage(mode === "verify" ? "Hermes controleert de bestaande repository-instelling…" : "Hermes stelt de repository-afzender in en controleert hem…");
+
+    const identityInstruction = mode === "verify"
+      ? "Do not change the existing Git identity. Verify only that repository-local git config user.name and user.email are both present and non-empty."
+      : `Set repository-local Git author identity exactly to user.name=${JSON.stringify(name)} and user.email=${JSON.stringify(email)}. Do not use --global.`;
+
+    const prompt = `OWNER HUMAN GATE RESOLUTION — GIT AUTHOR ONLY.\n\nWork only in the Hermes investment-machine repository associated with this research profile.\n\n${identityInstruction}\n\nAfter that:\n1. Verify with repository-local git config that both user.name and user.email are non-empty.\n2. Do not reveal credentials or tokens. The supplied author name/email are identity metadata, not credentials.\n3. Do not push anything, do not enable broker access, do not enable paper/live trading, do not change production, and do not weaken any risk control.\n4. If and only if the repository-local Git author is now valid, update state/autonomy/CURRENT.md so the Git-author human gate is cleared (NEEDS HUMAN: None.) and remove only the Git-author-related blocker. Preserve unrelated blockers, the current objective, NEXT, and evidence.\n5. Do not invent or overwrite unrelated state.\n6. Return exactly one final marker: GIT_AUTHOR_RESOLVED if verified and CURRENT.md was updated; otherwise GIT_AUTHOR_NOT_RESOLVED with the reason.\n\nThis is a narrow human-gate resolution, not an investment research task.`;
+
+    try {
+      const startedResponse = await fetch("/api/brain/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          input: prompt,
+          environment: "research",
+          session_id: "owner-action-git-author",
+        }),
+      });
+      const started = await startedResponse.json() as BrainRun;
+      if (!startedResponse.ok || started.error || !started.run_id) {
+        throw new Error(started.error || "Hermes kon de controle niet starten.");
+      }
+
+      let run = started;
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        if (["completed", "failed", "cancelled", "stopped"].includes(String(run.status).toLowerCase())) break;
+        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        const poll = await fetch(`/api/brain/runs/${encodeURIComponent(started.run_id)}?environment=research`, { cache: "no-store" });
+        run = await poll.json() as BrainRun;
+        if (!poll.ok) throw new Error(run.error || "De status van de controle kon niet worden gelezen.");
+      }
+
+      if (String(run.status).toLowerCase() !== "completed") {
+        throw new Error(run.error || `De controle eindigde met status ${run.status || "onbekend"}.`);
+      }
+
+      const output = text(run.output);
+      if (!output.includes("GIT_AUTHOR_RESOLVED")) {
+        throw new Error(output || "Hermes kon de Git-afzender niet bevestigen.");
+      }
+
+      setResolutionMessage("✓ Git-afzender is geverifieerd. Hermes werkt de open actie nu bij.");
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        await load();
+        await new Promise((resolve) => window.setTimeout(resolve, 1200));
+      }
+      await load();
+    } catch (error) {
+      setResolutionMessage("");
+      setResolutionError(error instanceof Error ? error.message : "De actie kon niet worden opgelost.");
+    } finally {
+      setResolving(false);
+    }
+  }
+
   if (pathname === "/login" || !needsAction) return null;
 
   return <>
@@ -217,6 +299,23 @@ export function OwnerActionCenter() {
             <span>Wat moet je doen?</span>
             <p>{explanation.instruction}</p>
           </section>
+
+          {gitAuthorAction && <section className={styles.actionForm}>
+            <span>Direct oplossen in het OS</span>
+            <p className={styles.formIntro}>Heb je dit eerder al ingesteld? Laat Hermes eerst controleren. Alleen als de instelling ontbreekt hoef je naam en e-mailadres opnieuw in te vullen.</p>
+            <button className={styles.verifyButton} onClick={() => void resolveGitAuthor("verify")} disabled={resolving}>
+              {resolving ? "Bezig met controleren…" : "Controleer bestaande Git-afzender"}
+            </button>
+            <div className={styles.divider}><span>of stel hem in</span></div>
+            <label>Naam<input value={authorName} onChange={(event) => setAuthorName(event.target.value)} placeholder="Bijvoorbeeld: Jan Jansen" disabled={resolving} /></label>
+            <label>E-mailadres<input type="email" value={authorEmail} onChange={(event) => setAuthorEmail(event.target.value)} placeholder="naam@voorbeeld.nl" disabled={resolving} /></label>
+            <button className={styles.resolveButton} onClick={() => void resolveGitAuthor("set")} disabled={resolving || !authorName.trim() || !validEmail(authorEmail)}>
+              {resolving ? "Hermes controleert…" : "Opslaan en actie oplossen"}
+            </button>
+            <small>Alleen repository-local Git-identiteit. Geen globale Git-instelling, geen GitHub-push en geen tradingrechten.</small>
+            {resolutionMessage && <div className={styles.resolveSuccess}>{resolutionMessage}</div>}
+            {resolutionError && <div className={styles.resolveError}>{resolutionError}</div>}
+          </section>}
 
           <section>
             <span>Waarom vraagt Hermes dit?</span>
