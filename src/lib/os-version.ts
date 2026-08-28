@@ -1,5 +1,5 @@
-export const OS_VERSION = "0.5.2";
-export const OS_RELEASE = "Actionable Human Gates";
+export const OS_VERSION = "0.5.3";
+export const OS_RELEASE = "Deterministic Owner Actions";
 
 export function getDeploymentMetadata() {
   const commit = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || "local";
