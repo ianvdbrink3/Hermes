@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { OwnerActionCenter } from "@/components/owner-action-center";
+import { PersistentHermesChatV3 } from "@/components/persistent-hermes-chat-v3";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,6 +14,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body>
         {children}
         <OwnerActionCenter />
+        <PersistentHermesChatV3 />
       </body>
     </html>
   );

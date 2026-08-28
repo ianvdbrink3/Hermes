@@ -1,5 +1,5 @@
-export const OS_VERSION = "0.5.0";
-export const OS_RELEASE = "Simple Hermes";
+export const OS_VERSION = "0.5.1";
+export const OS_RELEASE = "Persistent Research Chat";
 
 export function getDeploymentMetadata() {
   const commit = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || "local";
