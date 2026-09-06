@@ -1,5 +1,5 @@
-import { SimpleHermes } from "@/components/simple-hermes";
+import { ResearchControlCenter } from "@/components/research-control-center";
 
 export default function OnderzoekPage() {
-  return <SimpleHermes page="onderzoek" />;
+  return <ResearchControlCenter />;
 }
