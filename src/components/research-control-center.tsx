@@ -86,7 +86,6 @@ type Snapshot = {
 };
 
 type PipelineState = "done" | "active" | "waiting" | "next" | "pending" | "unknown";
-
 type PipelineStep = { id: string; number: number; state: PipelineState };
 
 function record(value: unknown): RecordLike {
@@ -176,12 +175,26 @@ function reviewedFixtures(snapshot: Snapshot | null) {
   const source = record(snapshot?.sourceSnapshot);
   const explicitReviews = rows(source.reviews || record(source.runtime).reviews);
   const candidates = [...explicitReviews, ...(snapshot?.events || [])];
+
   for (const item of candidates) {
-    const combined = `${text(item.fixture, "")} ${text(item.task_id, "")} ${text(item.event, "")} ${text(item.verdict, "")} ${text(item.outcome, "")}`;
-    const match = combined.match(/FS-I(\d+)/i);
-    const outcome = `${text(item.verdict, "")} ${text(item.outcome, "")} ${text(item.state, "")}`.toUpperCase();
-    if (match && /PASS|COMPLETED|COMPLETE/.test(outcome)) proven.add(Number(match[1]));
+    const fixtureSource = `${text(item.fixture, "")} ${text(item.task_id, "")} ${text(item.taskId, "")} ${text(item.event, "")}`;
+    const match = fixtureSource.match(/FS-I(\d+)/i);
+    const outcomes = [
+      item.verdict,
+      item.outcome,
+      item.semantic_outcome,
+      item.semanticOutcome,
+      item.overall_outcome,
+      item.overallOutcome,
+      item.review_outcome,
+      item.reviewOutcome,
+    ]
+      .map((value) => text(value, "").trim().toUpperCase())
+      .filter(Boolean);
+
+    if (match && outcomes.includes("PASS")) proven.add(Number(match[1]));
   }
+
   return proven;
 }
 
