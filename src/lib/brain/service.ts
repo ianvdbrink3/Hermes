@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { brainHermesFetch, getBrainProfileConfig, safeHermesJson } from "@/lib/brain/hermes-client";
 import type {
   BrainEnvironment,
@@ -7,14 +6,9 @@ import type {
   CapabilityItem,
   HermesSkill,
   HermesToolset,
-  ImprovementRequest,
 } from "@/lib/brain/types";
 
 type HermesModelsResponse = { data?: Array<{ id?: string }> };
-type BrainGlobal = typeof globalThis & { __hermesBrainImprovements?: Map<string, ImprovementRequest> };
-const brainGlobal = globalThis as BrainGlobal;
-const improvementStore = brainGlobal.__hermesBrainImprovements || new Map<string, ImprovementRequest>();
-brainGlobal.__hermesBrainImprovements = improvementStore;
 
 function extractArray<T>(value: unknown): T[] {
   if (Array.isArray(value)) return value as T[];
@@ -105,36 +99,34 @@ export async function getCapabilityItems(): Promise<{ items: CapabilityItem[]; s
 
 const RESEARCH_INSTRUCTIONS = `You are Hermes CIO operating inside the Hermes Investment OS research environment.\n\nYour purpose is evidence-based improvement of investment intelligence. You may inspect available skills, analyse prior work, identify weaknesses, research hypotheses, propose capabilities and design validation plans.\n\nYou must NOT modify production investment behaviour, change live risk limits, promote skills to production, claim improvement without evidence, optimise around tiny samples, or treat in-sample results as validation.\n\nWhen proposing an improvement, explicitly provide: observed problem, evidence, hypothesis, proposed capability, required data, validation method, success criteria, potential risks, and state when evidence is insufficient. Prefer one strong measurable improvement over several speculative ones. Production must remain unchanged.`;
 
-const PRODUCTION_CONSOLE_INSTRUCTIONS = `You are Hermes CIO inside Hermes Investment OS. This console may inspect and discuss the production brain, but it must not modify production skills, risk policy, execution settings or investment behaviour. Be evidence-first, never fabricate prices or state, and clearly distinguish missing data from conclusions.`;
-
 export async function startBrainRun(environment: BrainEnvironment, input: string, sessionId?: string): Promise<BrainRun> {
-  const config = getBrainProfileConfig(environment);
+  if (environment !== "research") {
+    return {
+      run_id: `blocked_${Date.now()}`,
+      status: "failed",
+      error: "Model-backed Brain Studio runs are research-only. Production and Builder are inspect/health surfaces until separate promotion and checkpoint workflows are proven.",
+      environment,
+      profile: environment === "production" ? "his-production" : "his-builder",
+    };
+  }
+
+  const config = getBrainProfileConfig("research");
   if (!config.configured) {
     return {
       run_id: `unavailable_${Date.now()}`,
       status: "failed",
       error: `${config.profile} is not configured. Connect that profile before running this action.`,
-      environment,
+      environment: "research",
       profile: config.profile,
     };
   }
 
-  if (environment === "builder") {
-    return {
-      run_id: `blocked_${Date.now()}`,
-      status: "failed",
-      error: "Builder execution is intentionally disabled in v0.4. The builder may be connected for health/readiness, but autonomous mutation stays gated until the checkpoint workflow is proven.",
-      environment,
-      profile: config.profile,
-    };
-  }
-
-  const response = await brainHermesFetch(environment, "/v1/runs", {
+  const response = await brainHermesFetch("research", "/v1/runs", {
     method: "POST",
     body: JSON.stringify({
       input,
-      instructions: environment === "research" ? RESEARCH_INSTRUCTIONS : PRODUCTION_CONSOLE_INSTRUCTIONS,
-      session_id: sessionId || `brain-${environment}-primary`,
+      instructions: RESEARCH_INSTRUCTIONS,
+      session_id: sessionId || "brain-research-primary",
     }),
   });
   const payload = (await response.json()) as Record<string, unknown>;
@@ -143,9 +135,9 @@ export async function startBrainRun(environment: BrainEnvironment, input: string
     status: String(payload.status || (response.ok ? "started" : "failed")),
     output: typeof payload.output === "string" ? payload.output : undefined,
     error: !response.ok ? String(payload.error || `Hermes returned HTTP ${response.status}`) : undefined,
-    environment,
+    environment: "research",
     profile: config.profile,
-    session_id: typeof payload.session_id === "string" ? payload.session_id : undefined,
+    session_id: typeof payload.session_id === "string" ? payload.session_id : sessionId,
   };
 }
 
@@ -167,41 +159,8 @@ export async function getBrainRun(environment: BrainEnvironment, runId: string):
   };
 }
 
-function titleFromGoal(goal: string) {
-  const compact = goal.replace(/\s+/g, " ").trim();
-  return compact.length > 72 ? `${compact.slice(0, 69)}...` : compact;
-}
-
-export function createImprovement(userGoal: string): ImprovementRequest {
-  const improvement: ImprovementRequest = {
-    id: randomUUID(),
-    title: titleFromGoal(userGoal),
-    userGoal,
-    createdAt: new Date().toISOString(),
-    createdBy: "owner",
-    sourceProfile: "his-research",
-    targetProfile: "his-builder",
-    status: "DRAFT",
-    evidence: [],
-    requiredKnowledge: [],
-    requiredData: [],
-    approvalState: "NOT_REQUESTED",
-    persistence: "ephemeral",
-  };
-  improvementStore.set(improvement.id, improvement);
-  return improvement;
-}
-
-export function listImprovements() {
-  return Array.from(improvementStore.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
-
-export function getImprovement(id: string) {
-  return improvementStore.get(id) || null;
-}
-
 export const brainProductionPolicy = {
   promotionEnabled: false,
   builderMutationEnabled: false,
-  explanation: "v0.4 adds autonomous observability and builder readiness while production changes, broker execution, builder mutation and promotion remain explicitly gated.",
+  explanation: "Research may inspect and propose improvements. Production promotion, builder mutation, broker execution and live risk changes remain explicitly gated and unavailable from the browser control plane.",
 };

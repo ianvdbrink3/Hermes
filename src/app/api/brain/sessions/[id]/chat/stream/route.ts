@@ -1,9 +1,14 @@
 import { NextRequest } from "next/server";
 import { brainHermesStreamFetch, getBrainProfileConfig } from "@/lib/brain/hermes-client";
 import { cleanSessionId, parseControlEnvironment, researchOnly } from "@/lib/brain/control";
+import { getRuntimeSnapshot, manualModelInvocationPolicy } from "@/lib/os/runtime-snapshot";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+function blockedStatus(code: string) {
+  return code === "WAITING_PROVIDER" || code === "WAITING_PROVIDER_UNVERIFIED" ? 429 : 423;
+}
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const environment = parseControlEnvironment(request.nextUrl.searchParams.get("environment"));
@@ -22,15 +27,43 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   if (!input) return Response.json({ error: "input is required" }, { status: 400 });
   if (input.length > 16_000) return Response.json({ error: "input is too long" }, { status: 413 });
 
-  const requested: Record<string, unknown> = { input };
-  if (typeof body.model === "string" && body.model.trim()) requested.model = body.model.trim().slice(0, 160);
-  if (typeof body.provider === "string" && body.provider.trim()) requested.provider = body.provider.trim().slice(0, 80);
-  if (body.model_options && typeof body.model_options === "object" && !Array.isArray(body.model_options)) requested.model_options = body.model_options;
+  if (typeof body.provider === "string" && body.provider.trim() && body.provider.trim() !== "openai-codex") {
+    return Response.json({ error: "Provider overrides are disabled; research chat uses the configured openai-codex profile." }, { status: 403 });
+  }
+  if (typeof body.model === "string" && body.model.trim() && body.model.trim() !== "gpt-5.6-sol") {
+    return Response.json({ error: "Model overrides are disabled; research chat uses gpt-5.6-sol." }, { status: 403 });
+  }
+  if (body.model_options !== undefined) {
+    return Response.json({ error: "Per-request model_options overrides are disabled in the bounded research control plane." }, { status: 403 });
+  }
 
   try {
+    const runtimeSnapshot = await getRuntimeSnapshot();
+    const policy = manualModelInvocationPolicy(runtimeSnapshot);
+    if (!policy.allowed) {
+      const headers: Record<string, string> = { "X-Hermes-Invocation-Policy": policy.code };
+      if (runtimeSnapshot.provider.cooldownActive && runtimeSnapshot.provider.retryNotBeforeUtc) {
+        const retryAt = new Date(runtimeSnapshot.provider.retryNotBeforeUtc).getTime();
+        if (Number.isFinite(retryAt)) headers["Retry-After"] = String(Math.max(1, Math.ceil((retryAt - Date.now()) / 1000)));
+      }
+      return Response.json(
+        {
+          error: policy.reason,
+          policy: {
+            allowed: false,
+            code: policy.code,
+            source: "session_stream",
+            runtimeState: runtimeSnapshot.runtime.state,
+            retryNotBeforeUtc: runtimeSnapshot.provider.retryNotBeforeUtc,
+          },
+        },
+        { status: blockedStatus(policy.code), headers },
+      );
+    }
+
     const upstream = await brainHermesStreamFetch("research", `/api/sessions/${encodeURIComponent(id)}/chat/stream`, {
       method: "POST",
-      body: JSON.stringify(requested),
+      body: JSON.stringify({ input }),
     });
 
     if (!upstream.ok || !upstream.body) {
@@ -45,6 +78,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
         "Cache-Control": "no-cache, no-transform",
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
+        "X-Hermes-Invocation-Policy": policy.code,
       },
     });
   } catch (error) {

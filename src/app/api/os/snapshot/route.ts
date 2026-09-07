@@ -5,8 +5,9 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const snapshot = await getRuntimeSnapshot();
+  const manualInvocation = manualModelInvocationPolicy(snapshot);
   return NextResponse.json(
-    { ...snapshot, manualInvocation: manualModelInvocationPolicy(snapshot) },
+    { ...snapshot, manualInvocation },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

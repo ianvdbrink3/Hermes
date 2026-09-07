@@ -1,50 +1,59 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { HermesShell, type HermesTone } from "./hermes-shell";
 import styles from "./research-control-center.module.css";
 
 type RecordLike = Record<string, unknown>;
 
-type AutonomyResponse = {
-  connected?: boolean;
-  state?: string;
-  message?: string;
-  snapshot?: RecordLike;
-};
+type RuntimeState =
+  | "READY"
+  | "RUNNING"
+  | "WAITING_PROVIDER"
+  | "WAITING_PROVIDER_UNVERIFIED"
+  | "WAITING_BUDGET"
+  | "WAITING_SPACING"
+  | "NEEDS_HUMAN"
+  | "BLOCKED_UNVERIFIED_USAGE"
+  | "BLOCKED_INTEGRITY"
+  | "IDLE"
+  | "DEGRADED"
+  | "OFFLINE";
 
-type BrainStatus = {
-  production?: { state?: string; profile?: string; message?: string };
-  research?: { state?: string; profile?: string; message?: string };
-  builder?: { state?: string; profile?: string; message?: string };
-};
-
-type RuntimeResponse = {
-  connected?: boolean;
-  mode?: string;
-  currentTask?: string | null;
-  currentFixture?: number | null;
-  lastCompletedWork?: unknown;
-  next?: unknown;
-  blockers?: unknown;
-  needsHuman?: unknown;
+type Snapshot = {
+  schemaVersion?: number;
+  generatedAt?: string;
+  runtime?: { state?: RuntimeState; reason?: string | null; readOnly?: boolean };
+  mission?: {
+    taskId?: string | null;
+    fixture?: string | null;
+    fixtureNumber?: number | null;
+    nextFixture?: string | null;
+    objective?: unknown;
+    inProgress?: unknown;
+    next?: unknown;
+    blockers?: unknown;
+    needsHuman?: unknown;
+    lastCompletedWork?: unknown;
+  };
   provider?: {
     name?: string;
     model?: string;
     state?: string;
     retryNotBeforeUtc?: string | null;
-    retryAfterSeconds?: number | null;
-    cooldownSource?: string | null;
+    cooldownActive?: boolean;
+    historicalQuotaSignal?: boolean;
   };
   scheduler?: {
-    id?: string;
-    name?: string;
+    found?: boolean;
+    id?: string | null;
+    name?: string | null;
     active?: boolean;
     schedule?: unknown;
     nextRun?: unknown;
     lastRun?: unknown;
     lastStatus?: unknown;
-  } | null;
+  };
   compute?: {
     available?: boolean;
     runs24h?: number | null;
@@ -58,26 +67,26 @@ type RuntimeResponse = {
     estimatedContextBytes?: number | null;
     maxContextBytes?: number | null;
   };
+  lastReview?: RecordLike | null;
+  events?: RecordLike[];
+  safety?: RecordLike;
+  connections?: {
+    research?: { configured?: boolean; state?: string };
+    production?: { configured?: boolean; state?: string };
+    builder?: { configured?: boolean; state?: string };
+  };
   telemetry?: {
     stateFeed?: boolean;
     scheduler?: boolean;
     compute?: boolean;
     exactProviderCooldown?: boolean;
+    runtimeEvents?: boolean;
   };
-  safety?: RecordLike;
-  messages?: string[];
-  generatedAt?: string;
-  readOnly?: boolean;
-  modelLaunch?: boolean;
+  sourceSnapshot?: RecordLike;
 };
 
-type Tone = "good" | "warn" | "bad" | "muted";
-
-type PipelineStep = {
-  id: string;
-  number: number;
-  state: "done" | "active" | "waiting" | "next" | "pending";
-};
+type PipelineState = "done" | "active" | "waiting" | "next" | "pending" | "unknown";
+type PipelineStep = { id: string; number: number; state: PipelineState };
 
 function record(value: unknown): RecordLike {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as RecordLike) : {};
@@ -96,7 +105,7 @@ function text(value: unknown, fallback = "—") {
   return String(value);
 }
 
-function compact(value: unknown, max = 180) {
+function compact(value: unknown, max = 200) {
   const source = text(value, "").replace(/\s+/g, " ").trim();
   if (!source) return "—";
   return source.length > max ? `${source.slice(0, max - 1)}…` : source;
@@ -121,73 +130,117 @@ function number(value: number | null | undefined) {
 
 function ratio(value: number | null | undefined, max: number | null | undefined) {
   if (value === null || value === undefined || max === null || max === undefined) return "—";
-  return `${new Intl.NumberFormat("nl-NL").format(value)} / ${new Intl.NumberFormat("nl-NL").format(max)}`;
+  return `${number(value)} / ${number(max)}`;
 }
 
-function toneForMode(mode?: string): Tone {
-  if (mode === "human_gate") return "bad";
-  if (mode === "provider_cooldown") return "warn";
-  if (mode === "scheduled") return "good";
-  if (mode === "offline") return "bad";
+function stateTone(state?: RuntimeState): HermesTone {
+  if (state === "READY" || state === "RUNNING") return "good";
+  if (["WAITING_PROVIDER", "WAITING_PROVIDER_UNVERIFIED", "WAITING_BUDGET", "WAITING_SPACING", "IDLE", "DEGRADED"].includes(state || "")) return "warn";
+  if (["NEEDS_HUMAN", "BLOCKED_UNVERIFIED_USAGE", "BLOCKED_INTEGRITY", "OFFLINE"].includes(state || "")) return "bad";
   return "muted";
 }
 
-function modeLabel(mode?: string) {
-  if (mode === "human_gate") return "Jouw actie nodig";
-  if (mode === "provider_cooldown") return "Wacht op provider";
-  if (mode === "scheduled") return "Automatisch actief";
-  if (mode === "offline") return "Runtime offline";
-  return "Klaar / wachtend";
+function stateLabel(state?: RuntimeState) {
+  const labels: Partial<Record<RuntimeState, string>> = {
+    READY: "Klaar voor volgende review",
+    RUNNING: "Onderzoek draait",
+    WAITING_PROVIDER: "Wacht op modelprovider",
+    WAITING_PROVIDER_UNVERIFIED: "Providerstatus moet worden bevestigd",
+    WAITING_BUDGET: "Wacht op compute-budget",
+    WAITING_SPACING: "Wacht op minimale tussenruimte",
+    NEEDS_HUMAN: "Jouw actie nodig",
+    BLOCKED_UNVERIFIED_USAGE: "Geblokkeerd: AI-gebruik niet verifieerbaar",
+    BLOCKED_INTEGRITY: "Geblokkeerd: integriteitscontrole",
+    IDLE: "Onderzoeksrouter niet actief",
+    DEGRADED: "Gedeeltelijk beschikbaar",
+    OFFLINE: "Research-runtime offline",
+  };
+  return state ? labels[state] || state : "Status laden…";
 }
 
-function providerLabel(runtime: RuntimeResponse | null) {
-  if (runtime?.provider?.state === "cooldown") return "Cooldown";
-  if (runtime?.provider?.state === "ready_or_unknown") return "Beschikbaar / niet geblokkeerd";
-  return "Niet vastgesteld";
+function heroTitle(state?: RuntimeState) {
+  if (state === "WAITING_PROVIDER") return "Hermes wacht veilig op nieuwe modelcapaciteit.";
+  if (state === "WAITING_PROVIDER_UNVERIFIED") return "Hermes ziet een providerprobleem, maar verzint geen retrytijd.";
+  if (state === "WAITING_BUDGET") return "Hermes respecteert het ingestelde AI-budget.";
+  if (state === "NEEDS_HUMAN") return "Hermes wacht op een echte menselijke beslissing.";
+  if (state === "BLOCKED_UNVERIFIED_USAGE") return "Hermes stopt omdat AI-gebruik niet betrouwbaar kan worden vastgesteld.";
+  if (state === "BLOCKED_INTEGRITY") return "Hermes stopt omdat een verificatie niet klopt.";
+  if (state === "OFFLINE") return "De research-runtime is niet bereikbaar.";
+  if (state === "RUNNING") return "Hermes voert nu een gecontroleerde onderzoeksreview uit.";
+  return "Hermes Research werkt gecontroleerd en zelfstandig.";
 }
 
-function pipeline(currentFixture: number | null | undefined, mode?: string): PipelineStep[] {
-  if (!currentFixture) return [];
+function reviewedFixtures(snapshot: Snapshot | null) {
+  const proven = new Set<number>();
+  const source = record(snapshot?.sourceSnapshot);
+  const explicitReviews = rows(source.reviews || record(source.runtime).reviews);
+  const candidates = [...explicitReviews, ...(snapshot?.events || [])];
+
+  for (const item of candidates) {
+    const fixtureSource = `${text(item.fixture, "")} ${text(item.task_id, "")} ${text(item.taskId, "")} ${text(item.event, "")}`;
+    const match = fixtureSource.match(/FS-I(\d+)/i);
+    const outcomes = [
+      item.verdict,
+      item.outcome,
+      item.semantic_outcome,
+      item.semanticOutcome,
+      item.overall_outcome,
+      item.overallOutcome,
+      item.review_outcome,
+      item.reviewOutcome,
+    ]
+      .map((value) => text(value, "").trim().toUpperCase())
+      .filter(Boolean);
+
+    if (match && outcomes.includes("PASS")) proven.add(Number(match[1]));
+  }
+
+  return proven;
+}
+
+function buildPipeline(snapshot: Snapshot | null): PipelineStep[] {
+  const current = snapshot?.mission?.fixtureNumber;
+  if (!current) return [];
+  const proven = reviewedFixtures(snapshot);
+  const state = snapshot?.runtime?.state;
   return Array.from({ length: 20 }, (_, index) => {
     const number = 11 + index;
-    let state: PipelineStep["state"] = "pending";
-    if (number < currentFixture) state = "done";
-    else if (number === currentFixture) state = mode === "provider_cooldown" ? "waiting" : "active";
-    else if (number === currentFixture + 1) state = "next";
-    return { id: `FS-I${number}`, number, state };
+    let stepState: PipelineState = "pending";
+    if (proven.has(number)) stepState = "done";
+    else if (number < current) stepState = "unknown";
+    else if (number === current) stepState = state === "WAITING_PROVIDER" || state === "WAITING_PROVIDER_UNVERIFIED" || state === "WAITING_BUDGET" || state === "WAITING_SPACING" ? "waiting" : "active";
+    else if (number === current + 1) stepState = "next";
+    return { id: `FS-I${number}`, number, state: stepState };
   });
 }
 
-function Dot({ tone }: { tone: Tone }) {
-  return <span className={`${styles.dot} ${styles[`dot_${tone}`]}`} />;
+function connectionLabel(state?: string) {
+  if (state === "connected") return "Verbonden";
+  if (state === "not_configured") return "Niet ingesteld";
+  if (state === "auth_error") return "Authenticatie mislukt";
+  if (state === "offline") return "Offline";
+  if (state === "degraded") return "Beperkt";
+  return "Onbekend";
 }
 
-function HealthRow({ label, ok, detail }: { label: string; ok: boolean | null; detail: string }) {
-  const tone: Tone = ok === true ? "good" : ok === false ? "bad" : "warn";
-  return <div className={styles.healthRow}><Dot tone={tone} /><div><strong>{label}</strong><span>{detail}</span></div></div>;
+function eventTitle(item: RecordLike) {
+  return compact(item.title || item.event || item.type || item.state || "Runtime-event", 120);
 }
 
 export function ResearchControlCenter() {
-  const [runtime, setRuntime] = useState<RuntimeResponse | null>(null);
-  const [autonomy, setAutonomy] = useState<AutonomyResponse | null>(null);
-  const [brain, setBrain] = useState<BrainStatus | null>(null);
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [runtimeResponse, autonomyResponse, brainResponse] = await Promise.all([
-        fetch("/api/brain/runtime", { cache: "no-store" }),
-        fetch("/api/brain/autonomy", { cache: "no-store" }),
-        fetch("/api/brain/status", { cache: "no-store" }),
-      ]);
-      setRuntime((await runtimeResponse.json()) as RuntimeResponse);
-      setAutonomy((await autonomyResponse.json()) as AutonomyResponse);
-      setBrain((await brainResponse.json()) as BrainStatus);
+      const response = await fetch("/api/os/snapshot", { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setSnapshot((await response.json()) as Snapshot);
       setLastRefresh(new Date());
     } catch {
-      setRuntime({ connected: false, mode: "offline", messages: ["De research-runtime kon niet worden geladen."] });
+      setSnapshot({ runtime: { state: "OFFLINE", reason: "De geconsolideerde OS-state kon niet worden geladen." } });
     } finally {
       setLoading(false);
     }
@@ -195,130 +248,132 @@ export function ResearchControlCenter() {
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 30_000);
-    return () => window.clearInterval(timer);
+    const tick = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    const timer = window.setInterval(tick, 30_000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", tick);
+    };
   }, [refresh]);
 
-  const snapshot = record(autonomy?.snapshot);
-  const current = record(snapshot.current);
-  const experiments = record(snapshot.experiments);
-  const backlog = record(snapshot.backlog);
+  const source = record(snapshot?.sourceSnapshot);
+  const experiments = record(source.experiments);
+  const backlog = record(source.backlog);
   const recentExperiments = rows(experiments.recent || experiments.entries).slice(0, 5);
   const backlogEntries = rows(backlog.entries).slice(0, 6);
-  const steps = useMemo(() => pipeline(runtime?.currentFixture, runtime?.mode), [runtime?.currentFixture, runtime?.mode]);
-  const tone = toneForMode(runtime?.mode);
-  const compute = runtime?.compute;
-  const retryTime = runtime?.provider?.retryNotBeforeUtc;
-  const currentTask = runtime?.currentTask || text(current.current_task, "Geen actieve mission geladen");
-  const lastCompleted = runtime?.lastCompletedWork || current.last_completed_work;
-  const researchConnected = brain?.research?.state === "connected";
-  const schedulerActive = runtime?.scheduler?.active === true;
-  const stateFeedConnected = runtime?.telemetry?.stateFeed === true || autonomy?.connected === true;
-  const computeAvailable = runtime?.telemetry?.compute === true || compute?.available === true;
+  const steps = useMemo(() => buildPipeline(snapshot), [snapshot]);
+  const tone = stateTone(snapshot?.runtime?.state);
+  const compute = snapshot?.compute;
+  const events = snapshot?.events || [];
+  const providerBlocked = snapshot?.provider?.state === "COOLDOWN" || snapshot?.provider?.state === "LIMITED_UNVERIFIED";
+  const execution = text(snapshot?.safety?.execution, "Niet gerapporteerd");
 
-  return <div className={styles.shell}>
-    <header className={styles.header}>
-      <Link href="/" className={styles.brand}><b>H</b><span><strong>Hermes</strong><small>Investment OS</small></span></Link>
-      <nav className={styles.nav}>
-        <Link href="/">Overzicht</Link>
-        <Link href="/onderzoek" className={styles.active}>Onderzoek</Link>
-        <Link href="/trading">Trading</Link>
-        <Link href="/instellingen">Instellingen</Link>
-      </nav>
-      <div className={styles.headerRight}><span><Dot tone={tone} />{modeLabel(runtime?.mode)}</span><button onClick={() => void refresh()} disabled={loading}>{loading ? "Verversen…" : "Ververs"}</button></div>
-    </header>
-
-    <main className={styles.main}>
+  return (
+    <HermesShell
+      active="onderzoek"
+      status={stateLabel(snapshot?.runtime?.state)}
+      statusTone={tone}
+      wide
+      actions={<button onClick={() => void refresh()} disabled={loading}>{loading ? "Verversen…" : "Ververs"}</button>}
+    >
       <section className={`${styles.runtimeHero} ${styles[`runtimeHero_${tone}`]}`}>
         <div className={styles.heroTop}>
-          <div><span className={styles.eyebrow}>Research runtime</span><div className={styles.runtimeState}><Dot tone={tone} /><strong>{modeLabel(runtime?.mode)}</strong></div></div>
-          <div className={styles.readOnly}>READ-ONLY OBSERVABILITY</div>
+          <div><span className={styles.eyebrow}>Onderzoeksstatus</span><div className={styles.runtimeState}><i className={`${styles.dot} ${styles[`dot_${tone}`]}`} /><strong>{stateLabel(snapshot?.runtime?.state)}</strong></div></div>
+          <div className={styles.readOnly}>ALLEEN OBSERVATIE</div>
         </div>
-        <h1>{runtime?.mode === "provider_cooldown" ? "Hermes wacht veilig op nieuwe modelcapaciteit." : runtime?.mode === "human_gate" ? "Hermes wacht op een echte menselijke beslissing." : "Hermes Research draait gecontroleerd en zelfstandig."}</h1>
-        <p>{runtime?.mode === "provider_cooldown" ? "De scheduler blijft actief, maar start geen nieuwe review zolang de provider-cooldown geldt. De huidige mission blijft intact en wordt daarna automatisch opnieuw beoordeeld." : "Deze pagina leest alleen echte research-state uit. Er zijn hier bewust geen knoppen voor force retry, mission skipping of live execution."}</p>
+        <h1>{heroTitle(snapshot?.runtime?.state)}</h1>
+        <p>{snapshot?.runtime?.reason || "Het OS toont de actuele research-state uit één versieerbaar runtimecontract. Het leidt geen providerstatus of afgeronde review af zonder bewijs."}</p>
         <div className={styles.heroGrid}>
-          <div><span>Current mission</span><strong>{currentTask}</strong></div>
-          <div><span>Provider</span><strong>{providerLabel(runtime)}</strong><small>{runtime?.provider?.model || "gpt-5.6-sol"}</small></div>
-          <div><span>Volgende automatische retry</span><strong>{retryTime ? formatDate(retryTime, true) : formatDate(runtime?.scheduler?.nextRun)}</strong><small>{runtime?.provider?.cooldownSource === "state_feed" ? "exact uit state feed" : runtime?.provider?.cooldownSource === "scheduler_inference" ? "afgeleid uit scheduler" : "scheduler planning"}</small></div>
-          <div><span>Laatste resultaat</span><strong>{compact(lastCompleted, 90)}</strong></div>
+          <div><span>Huidige stap</span><strong>{snapshot?.mission?.fixture || snapshot?.mission?.taskId || "—"}</strong><small>{compact(snapshot?.mission?.taskId, 90)}</small></div>
+          <div><span>Modelstatus</span><strong>{providerBlocked ? "Geblokkeerd / wachtend" : "Niet geblokkeerd"}</strong><small>{snapshot?.provider?.model || "gpt-5.6-sol"}</small></div>
+          <div><span>Volgende poging</span><strong>{snapshot?.provider?.cooldownActive ? formatDate(snapshot?.provider?.retryNotBeforeUtc, true) : formatDate(snapshot?.scheduler?.nextRun, true)}</strong><small>{snapshot?.provider?.cooldownActive ? "exacte cooldown" : "volgende schedulertick"}</small></div>
+          <div><span>Laatste resultaat</span><strong>{compact(snapshot?.mission?.lastCompletedWork, 110)}</strong></div>
         </div>
       </section>
 
       <section className={styles.quickGrid}>
-        <article><span>GPT request nu</span><strong>{runtime?.modelLaunch === false ? "Nee" : "Niet vastgesteld"}</strong><p>Deze statuspagina start zelf nooit een model.</p></article>
-        <article><span>Open reservations</span><strong>{number(compute?.openReservations)}</strong><p>{computeAvailable ? "Uit compute-telemetrie." : "Nog niet in de read-only feed."}</p></article>
-        <article><span>Voided reservations</span><strong>{number(compute?.voidedReservations)}</strong><p>{computeAvailable ? "Veilig geneutraliseerde pre-provider starts." : "Nog niet in de read-only feed."}</p></article>
-        <article><span>Execution safety</span><strong className={styles.locked}>NO_ACTION</strong><p>Deze UI kan geen live orders of brokerbinding activeren.</p></article>
+        <article><span>AI-run vanuit dit scherm</span><strong>Nee</strong><p>Deze pagina leest alleen state en start geen model.</p></article>
+        <article><span>Open reservations</span><strong>{number(compute?.openReservations)}</strong><p>{compute?.available ? "Uit compute-telemetrie." : "Nog niet in de VPS-statefeed."}</p></article>
+        <article><span>Voided reservations</span><strong>{number(compute?.voidedReservations)}</strong><p>{compute?.available ? "Veilig geneutraliseerde starts." : "Nog niet in de VPS-statefeed."}</p></article>
+        <article><span>Execution</span><strong className={styles.locked}>{execution}</strong><p>Browseractivatie is hard uitgeschakeld.</p></article>
       </section>
 
       <section className={styles.section}>
-        <div className={styles.sectionHead}><div><span>Research pipeline</span><h2>Waar Hermes nu zit</h2></div><small>{runtime?.currentFixture ? `FS-I${runtime.currentFixture} actief` : "Fixture niet beschikbaar"}</small></div>
-        {steps.length ? <div className={styles.pipeline}>{steps.map((step) => <div key={step.id} className={`${styles.pipelineStep} ${styles[`pipeline_${step.state}`]}`}><span>{step.state === "done" ? "✓" : step.state === "waiting" ? "◷" : step.state === "active" ? "●" : step.state === "next" ? "→" : "○"}</span><strong>{step.id}</strong><small>{step.state === "done" ? "afgerond" : step.state === "waiting" ? "wacht" : step.state === "active" ? "actief" : step.state === "next" ? "hierna" : "pending"}</small></div>)}</div> : <div className={styles.notice}>De actieve FS-I fixture staat nog niet in de huidige state feed. De OS toont daarom geen verzonnen pipeline.</div>}
+        <div className={styles.sectionHead}><div><span>Onderzoekspipeline</span><h2>Waar Hermes nu zit</h2></div><small>{snapshot?.mission?.fixture ? `${snapshot.mission.fixture} huidig` : "Fixture niet beschikbaar"}</small></div>
+        {steps.length ? <div className={styles.pipeline}>{steps.map((step) => <div key={step.id} className={`${styles.pipelineStep} ${styles[`pipeline_${step.state}`]}`}><span>{step.state === "done" ? "✓" : step.state === "waiting" ? "◷" : step.state === "active" ? "●" : step.state === "next" ? "→" : step.state === "unknown" ? "?" : "○"}</span><strong>{step.id}</strong><small>{step.state === "done" ? "bewezen pass" : step.state === "waiting" ? "wacht" : step.state === "active" ? "huidig" : step.state === "next" ? "hierna" : step.state === "unknown" ? "niet in feed" : "pending"}</small></div>)}</div> : <div className={styles.notice}>De actieve fixture staat niet in de statefeed. Het OS tekent daarom geen verzonnen voortgang.</div>}
       </section>
 
       <section className={styles.columns}>
         <div className={styles.card}>
-          <div className={styles.cardHead}><span>AI / compute</span><h2>Budget en gebruik</h2></div>
+          <div className={styles.cardHead}><span>AI & compute</span><h2>Budget en gebruik</h2></div>
           <div className={styles.metricRows}>
-            <div><span>Runs 24h</span><strong>{ratio(compute?.runs24h, compute?.maxRuns24h)}</strong></div>
-            <div><span>Prompt tokens 24h</span><strong>{ratio(compute?.promptTokens24h, compute?.maxPromptTokens24h)}</strong></div>
-            <div><span>Total tokens 24h</span><strong>{ratio(compute?.totalTokens24h, compute?.maxTotalTokens24h)}</strong></div>
-            <div><span>Context bytes</span><strong>{ratio(compute?.estimatedContextBytes, compute?.maxContextBytes)}</strong></div>
+            <div><span>Runs 24 uur</span><strong>{ratio(compute?.runs24h, compute?.maxRuns24h)}</strong></div>
+            <div><span>Prompttokens 24 uur</span><strong>{ratio(compute?.promptTokens24h, compute?.maxPromptTokens24h)}</strong></div>
+            <div><span>Totale tokens 24 uur</span><strong>{ratio(compute?.totalTokens24h, compute?.maxTotalTokens24h)}</strong></div>
+            <div><span>Contextbytes</span><strong>{ratio(compute?.estimatedContextBytes, compute?.maxContextBytes)}</strong></div>
           </div>
-          {!computeAvailable && <div className={styles.telemetryGap}><strong>Compute-telemetrie nog niet gekoppeld</strong><p>Mission- en schedulerstate zijn live zichtbaar. Exacte budgetcounters worden pas getoond zodra de read-only VPS state feed ze exposeert; het OS vult hier bewust niets zelf in.</p></div>}
+          {!compute?.available && <div className={styles.telemetryGap}><strong>Exacte compute-telemetrie ontbreekt nog</strong><p>De weblaag vult geen budgetcijfers zelf in. Zodra de VPS-statefeed budget, usage en reservation-ledgers publiceert, verschijnen ze hier automatisch.</p></div>}
         </div>
 
         <div className={styles.card}>
-          <div className={styles.cardHead}><span>System health</span><h2>Wat functioneert</h2></div>
+          <div className={styles.cardHead}><span>Systeemgezondheid</span><h2>Wat functioneert</h2></div>
           <div className={styles.healthList}>
-            <HealthRow label="Research gateway" ok={researchConnected} detail={researchConnected ? "his-research bereikbaar" : "Researchprofiel niet volledig groen"} />
-            <HealthRow label="Research scheduler" ok={runtime?.telemetry?.scheduler ?? null} detail={schedulerActive ? `${runtime?.scheduler?.name || "Research Review Router"} actief` : "Scheduler niet actief of niet zichtbaar"} />
-            <HealthRow label="Mission state feed" ok={stateFeedConnected} detail={stateFeedConnected ? "Read-only snapshot beschikbaar" : "Snapshot niet bereikbaar"} />
-            <HealthRow label="Compute telemetry" ok={computeAvailable ? true : null} detail={computeAvailable ? "Budgetcounters beschikbaar" : "Nog niet opgenomen in state feed"} />
-            <HealthRow label="Execution boundary" ok={true} detail="Live trading blijft buiten deze research UI" />
+            <div className={styles.healthRow}><i className={`${styles.dot} ${styles[`dot_${snapshot?.connections?.research?.state === "connected" ? "good" : "bad"}`]}`} /><div><strong>Research gateway</strong><span>{connectionLabel(snapshot?.connections?.research?.state)}</span></div></div>
+            <div className={styles.healthRow}><i className={`${styles.dot} ${styles[`dot_${snapshot?.scheduler?.found && snapshot?.scheduler?.active ? "good" : "warn"}`]}`} /><div><strong>Research Review Router</strong><span>{snapshot?.scheduler?.found ? (snapshot.scheduler.active ? "Actief" : "Gevonden maar niet actief") : "Niet gevonden — geen legacy fallback"}</span></div></div>
+            <div className={styles.healthRow}><i className={`${styles.dot} ${styles[`dot_${snapshot?.telemetry?.stateFeed ? "good" : "bad"}`]}`} /><div><strong>Mission state feed</strong><span>{snapshot?.telemetry?.stateFeed ? "Beschikbaar" : "Niet bereikbaar"}</span></div></div>
+            <div className={styles.healthRow}><i className={`${styles.dot} ${styles[`dot_${snapshot?.telemetry?.compute ? "good" : "warn"}`]}`} /><div><strong>Compute-telemetrie</strong><span>{snapshot?.telemetry?.compute ? "Beschikbaar" : "Nog niet in statefeed"}</span></div></div>
+            <div className={styles.healthRow}><i className={`${styles.dot} ${styles.dot_good}`} /><div><strong>Browser execution boundary</strong><span>Trading-activatie hard geblokkeerd</span></div></div>
           </div>
         </div>
       </section>
 
       <section className={styles.columns}>
         <div className={styles.card}>
-          <div className={styles.cardHead}><span>Nu / hierna</span><h2>Mission context</h2></div>
+          <div className={styles.cardHead}><span>Nu & hierna</span><h2>Mission context</h2></div>
           <dl className={styles.definitionList}>
-            <div><dt>Nu</dt><dd>{compact(current.current_objective || current.in_progress, 240)}</dd></div>
-            <div><dt>Hierna</dt><dd>{compact(runtime?.next || current.next, 240)}</dd></div>
-            <div><dt>Blockers</dt><dd>{compact(runtime?.blockers || current.blockers, 240)}</dd></div>
-            <div><dt>Needs human</dt><dd>{compact(runtime?.needsHuman || current.needs_human, 240)}</dd></div>
+            <div><dt>Doel</dt><dd>{compact(snapshot?.mission?.objective, 260)}</dd></div>
+            <div><dt>Bezig</dt><dd>{compact(snapshot?.mission?.inProgress, 260)}</dd></div>
+            <div><dt>Hierna</dt><dd>{compact(snapshot?.mission?.next, 260)}</dd></div>
+            <div><dt>Blockers</dt><dd>{compact(snapshot?.mission?.blockers, 260)}</dd></div>
+            <div><dt>Mens nodig</dt><dd>{compact(snapshot?.mission?.needsHuman, 260)}</dd></div>
           </dl>
         </div>
-
         <div className={styles.card}>
-          <div className={styles.cardHead}><span>Scheduler</span><h2>Automatische research</h2></div>
+          <div className={styles.cardHead}><span>Automatische research</span><h2>Scheduler</h2></div>
           <dl className={styles.definitionList}>
-            <div><dt>Job</dt><dd>{runtime?.scheduler?.name || "Niet zichtbaar"}</dd></div>
-            <div><dt>Status</dt><dd>{schedulerActive ? "Actief" : "Niet actief / onbekend"}</dd></div>
-            <div><dt>Laatste run</dt><dd>{formatDate(runtime?.scheduler?.lastRun, true)}</dd></div>
-            <div><dt>Laatste status</dt><dd>{text(runtime?.scheduler?.lastStatus)}</dd></div>
-            <div><dt>Volgende tick</dt><dd>{formatDate(runtime?.scheduler?.nextRun, true)}</dd></div>
+            <div><dt>Job</dt><dd>{snapshot?.scheduler?.name || "Research Review Router niet gevonden"}</dd></div>
+            <div><dt>Status</dt><dd>{snapshot?.scheduler?.active ? "Actief" : "Niet actief"}</dd></div>
+            <div><dt>Laatste run</dt><dd>{formatDate(snapshot?.scheduler?.lastRun, true)}</dd></div>
+            <div><dt>Laatste status</dt><dd>{text(snapshot?.scheduler?.lastStatus)}</dd></div>
+            <div><dt>Volgende tick</dt><dd>{formatDate(snapshot?.scheduler?.nextRun, true)}</dd></div>
           </dl>
         </div>
       </section>
 
       <section className={styles.section}>
-        <div className={styles.sectionHead}><div><span>Recente activity</span><h2>Wat Hermes heeft vastgelegd</h2></div><small>State snapshot</small></div>
-        <div className={styles.activityList}>{recentExperiments.length ? recentExperiments.map((item, index) => <article key={`${text(item.experiment_id)}-${index}`}><div><span>{text(item.verdict, "RESULT")}</span><strong>{compact(item.hypothesis || item.experiment_id, 120)}</strong><p>{compact(item.result, 220)}</p></div><time>{formatDate(item.timestamp)}</time></article>) : <div className={styles.notice}>Nog geen recente experimenten in de huidige snapshot.</div>}</div>
+        <div className={styles.sectionHead}><div><span>Runtime-audit</span><h2>Operationele gebeurtenissen</h2></div><small>{events.length ? `${events.length} uit statefeed` : "telemetrie ontbreekt"}</small></div>
+        {events.length ? <div className={styles.activityList}>{events.slice(0, 12).map((item, index) => <article key={`${eventTitle(item)}-${index}`}><div><span>{text(item.type || item.event, "EVENT")}</span><strong>{eventTitle(item)}</strong><p>{compact(item.message || item.reason || item.result, 240)}</p></div><time>{formatDate(item.timestamp || item.ts || item.created_at, true)}</time></article>)}</div> : <div className={styles.telemetryGap}><strong>Deterministische runtime-events nog niet gepubliceerd</strong><p>Voor een volledige audit-timeline moet de VPS-statefeed run manifests, reservation/void-events en mission progression als read-only events publiceren. Het OS gebruikt experimenten niet als vervanging voor deze operationele waarheid.</p></div>}
+      </section>
+
+      <section className={styles.section}>
+        <div className={styles.sectionHead}><div><span>Onderzoeksresultaten</span><h2>Recente experimenten</h2></div><small>inhoudelijke state</small></div>
+        <div className={styles.activityList}>{recentExperiments.length ? recentExperiments.map((item, index) => <article key={`${text(item.experiment_id)}-${index}`}><div><span>{text(item.verdict, "RESULT")}</span><strong>{compact(item.hypothesis || item.experiment_id, 140)}</strong><p>{compact(item.result, 240)}</p></div><time>{formatDate(item.timestamp, true)}</time></article>) : <div className={styles.notice}>Nog geen recente experimenten in de huidige snapshot.</div>}</div>
       </section>
 
       <section className={styles.section}>
         <div className={styles.sectionHead}><div><span>Backlog</span><h2>Volgende veilige taken</h2></div><small>{backlogEntries.length} zichtbaar</small></div>
-        <div className={styles.backlog}>{backlogEntries.length ? backlogEntries.map((item, index) => <article key={`${text(item.task_id)}-${index}`}><code>{text(item.task_id)}</code><div><strong>{compact(item.title || item.rationale || item.task_id, 140)}</strong><p>{compact(item.rationale, 190)}</p></div><span>{text(item.status, text(item.priority, "—"))}</span></article>) : <div className={styles.notice}>Geen backlog-items in de huidige snapshot.</div>}</div>
+        <div className={styles.backlog}>{backlogEntries.length ? backlogEntries.map((item, index) => <article key={`${text(item.task_id)}-${index}`}><code>{text(item.task_id)}</code><div><strong>{compact(item.title || item.rationale || item.task_id, 150)}</strong><p>{compact(item.rationale, 210)}</p></div><span>{text(item.status, text(item.priority, "—"))}</span></article>) : <div className={styles.notice}>Geen backlog-items in de huidige snapshot.</div>}</div>
       </section>
 
       <section className={styles.safety}>
-        <div><span>Safety boundary</span><h2>Observeren mag. Forceren niet.</h2><p>Er zijn bewust geen controls voor “Retry now”, “Force next mission”, “Clear reservation” of live execution. Eerst moet de automatische researchketen zichzelf betrouwbaar bewijzen.</p></div>
-        <div className={styles.safetyGrid}><span>✓ Read-only runtime</span><span>✓ Geen modelcall door dashboard</span><span>✓ Geen reservation mutation</span><span>✓ Geen live trading</span></div>
+        <div><span>Veiligheidsgrens</span><h2>Observeren mag. Forceren niet.</h2><p>Geen “Retry now”, mission-skip, reservation-delete of browsergestuurde live execution. Handmatige Hermes-runs worden eerst door de centrale runtimepolicy gecontroleerd.</p></div>
+        <div className={styles.safetyGrid}><span>✓ Eén runtimewaarheid</span><span>✓ Geen legacy schedulerfallback</span><span>✓ Handmatige modelcalls gepolicy-gated</span><span>✓ Browser execution hard locked</span></div>
       </section>
 
-      {(runtime?.messages?.length || !runtime?.telemetry?.exactProviderCooldown) && <details className={styles.details}><summary>Technische telemetry-info</summary><pre>{JSON.stringify({ runtime, generatedAt: runtime?.generatedAt, lastRefresh: lastRefresh?.toISOString() }, null, 2)}</pre></details>}
-    </main>
-  </div>;
+      <details className={styles.details}><summary>Technische OS-snapshot</summary><pre>{JSON.stringify({ ...snapshot, lastBrowserRefresh: lastRefresh?.toISOString() }, null, 2)}</pre></details>
+    </HermesShell>
+  );
 }

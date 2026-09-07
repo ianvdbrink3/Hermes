@@ -1,19 +1,16 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
-export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => ({}));
-  const target = body.enabled === true;
-  const url = process.env.EXECUTION_CONTROL_URL;
-  const key = process.env.EXECUTION_CONTROL_KEY;
-  if (!url || !key) {
-    return NextResponse.json({ ok: false, execution_locked: true, message: "Execution service is not configured. Trading remains hard-locked." }, { status: 409 });
-  }
-  const response = await fetch(`${url.replace(/\/$/, "")}/trading`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled: target, source: "hermes-investment-os" }),
-    cache: "no-store"
-  });
-  const data = await response.json().catch(() => ({}));
-  return NextResponse.json(data, { status: response.status });
+export async function POST() {
+  return NextResponse.json(
+    {
+      ok: false,
+      execution_locked: true,
+      code: "BROWSER_EXECUTION_DISABLED",
+      message: "Browser-triggered trading activation is hard-disabled. A future execution flow must use a separate authoritative service with explicit human approval, time-limited activation and independent risk controls.",
+    },
+    {
+      status: 423,
+      headers: { "Cache-Control": "no-store" },
+    },
+  );
 }
