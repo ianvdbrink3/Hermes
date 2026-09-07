@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { startBrainRun } from "@/lib/brain/service";
+import { getRuntimeSnapshot, manualModelInvocationPolicy } from "@/lib/os/runtime-snapshot";
 
 function clean(value: unknown, max = 12_000) {
   if (typeof value !== "string") return "";
   return value.trim().slice(0, max);
+}
+
+function blockedStatus(code: string) {
+  return code === "WAITING_PROVIDER" || code === "WAITING_PROVIDER_UNVERIFIED" ? 429 : 423;
 }
 
 function missionPrompt({
@@ -37,14 +42,40 @@ export async function POST(request: NextRequest) {
   if (!objective) return NextResponse.json({ error: "objective is required" }, { status: 400 });
   if (!missionId) return NextResponse.json({ error: "mission_id is required" }, { status: 400 });
 
-  const sessionId = `mission:${missionId}:${mode}:${attempt}`;
-  const input = missionPrompt({ missionId, objective, attempt, mode, previousRunId, failureReason });
-
   try {
+    const runtime = await getRuntimeSnapshot();
+    const policy = manualModelInvocationPolicy(runtime);
+    if (!policy.allowed) {
+      const headers: Record<string, string> = { "X-Hermes-Invocation-Policy": policy.code };
+      if (runtime.provider.cooldownActive && runtime.provider.retryNotBeforeUtc) {
+        const retryAt = new Date(runtime.provider.retryNotBeforeUtc).getTime();
+        if (Number.isFinite(retryAt)) headers["Retry-After"] = String(Math.max(1, Math.ceil((retryAt - Date.now()) / 1000)));
+      }
+      return NextResponse.json(
+        {
+          error: policy.reason,
+          mission_id: missionId,
+          policy: { allowed: false, code: policy.code, source: "resilient_mission" },
+        },
+        { status: blockedStatus(policy.code), headers },
+      );
+    }
+
+    const sessionId = `mission:${missionId}:${mode}:${attempt}`;
+    const input = missionPrompt({ missionId, objective, attempt, mode, previousRunId, failureReason });
     const run = await startBrainRun("research", input, sessionId);
     return NextResponse.json(
-      { ...run, mission_id: missionId, mission_mode: mode, mission_attempt: attempt },
-      { status: run.status === "failed" ? 503 : 202 },
+      {
+        ...run,
+        mission_id: missionId,
+        mission_mode: mode,
+        mission_attempt: attempt,
+        invocationPolicy: { allowed: true, code: policy.code, source: "resilient_mission" },
+      },
+      {
+        status: run.status === "failed" ? 503 : 202,
+        headers: { "X-Hermes-Invocation-Policy": policy.code },
+      },
     );
   } catch (error) {
     return NextResponse.json(
