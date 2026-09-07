@@ -29,7 +29,8 @@ export async function proxy(request: NextRequest) {
   const protectedApi =
     request.nextUrl.pathname.startsWith("/api/hermes/") ||
     request.nextUrl.pathname.startsWith("/api/risk/") ||
-    request.nextUrl.pathname.startsWith("/api/brain/");
+    request.nextUrl.pathname.startsWith("/api/brain/") ||
+    request.nextUrl.pathname.startsWith("/api/os/");
 
   if (protectedApi && isMutatingRequest(request)) {
     if (!isSameOriginRequest(request)) {
@@ -55,6 +56,7 @@ export const config = {
     "/api/hermes/:path*",
     "/api/risk/:path*",
     "/api/brain/:path*",
+    "/api/os/:path*",
     "/((?!api/auth|login|_next/static|_next/image|favicon.ico).*)",
   ],
 };
