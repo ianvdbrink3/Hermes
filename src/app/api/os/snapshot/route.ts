@@ -1,16 +1,18 @@
 import { NextResponse } from "next/server";
 import { getRuntimeSnapshot, manualModelInvocationPolicy } from "@/lib/os/runtime-snapshot";
 import { guardManualInvocation, repairRuntimeSnapshot } from "@/lib/os/runtime-snapshot-repair";
+import { presentRuntimeSnapshot } from "@/lib/os/runtime-snapshot-presentation";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   const rawSnapshot = await getRuntimeSnapshot();
-  const snapshot = repairRuntimeSnapshot(rawSnapshot);
+  const repairedSnapshot = repairRuntimeSnapshot(rawSnapshot);
   const manualInvocation = guardManualInvocation(
-    snapshot,
-    manualModelInvocationPolicy(snapshot),
+    repairedSnapshot,
+    manualModelInvocationPolicy(repairedSnapshot),
   );
+  const snapshot = presentRuntimeSnapshot(repairedSnapshot);
 
   return NextResponse.json(
     { ...snapshot, manualInvocation },
