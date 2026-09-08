@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { startBrainRun } from "@/lib/brain/service";
 import { getRuntimeSnapshot, manualModelInvocationPolicy } from "@/lib/os/runtime-snapshot";
+import { guardManualInvocation, repairRuntimeSnapshot } from "@/lib/os/runtime-snapshot-repair";
 
 const allowedSources = new Set(["manual_chat", "brain_studio", "improvement_research"]);
 
@@ -23,8 +24,13 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const runtime = await getRuntimeSnapshot();
-    const policy = manualModelInvocationPolicy(runtime);
+    const rawRuntime = await getRuntimeSnapshot();
+    const runtime = repairRuntimeSnapshot(rawRuntime);
+    const policy = guardManualInvocation(
+      runtime,
+      manualModelInvocationPolicy(runtime),
+    );
+
     if (!policy.allowed) {
       const status = policy.code === "WAITING_PROVIDER" || policy.code === "WAITING_PROVIDER_UNVERIFIED" ? 429 : 423;
       const headers: Record<string, string> = { "X-Hermes-Invocation-Policy": policy.code };
