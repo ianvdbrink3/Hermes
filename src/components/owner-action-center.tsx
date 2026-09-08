@@ -5,8 +5,11 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./owner-action-center.module.css";
 
-type RecordLike = Record<string, unknown>;
-type AutonomyResponse = { connected?: boolean; snapshot?: RecordLike };
+type OsSnapshotResponse = {
+  runtime?: { state?: string };
+  mission?: { needsHuman?: unknown; blockers?: unknown; objective?: unknown };
+  telemetry?: { stateFeed?: boolean };
+};
 type BrainRun = { run_id?: string; status?: string; output?: string; error?: string };
 
 type ActionExplanation = {
@@ -17,23 +20,11 @@ type ActionExplanation = {
   note?: string;
 };
 
-function record(value: unknown): RecordLike {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as RecordLike : {};
-}
-
 function text(value: unknown) {
   if (value === null || value === undefined) return "";
   if (Array.isArray(value)) return value.map(String).join(" · ");
   if (typeof value === "object") return JSON.stringify(value);
   return String(value).replace(/\s+/g, " ").trim();
-}
-
-function gateIsClear(value: unknown) {
-  const normalized = text(value).toLowerCase().replace(/[.!?;:,]+$/g, "").trim();
-  return !normalized || [
-    "none", "nothing", "geen", "n/a", "null", "no human gate", "no human action",
-    "nothing required", "geen actie nodig", "no action required",
-  ].includes(normalized);
 }
 
 function isGitAuthorGate(gate: string, blockers: string) {
@@ -113,6 +104,7 @@ export function OwnerActionCenter() {
   const [blockers, setBlockers] = useState("");
   const [objective, setObjective] = useState("");
   const [connected, setConnected] = useState(false);
+  const [runtimeState, setRuntimeState] = useState("");
   const [authorName, setAuthorName] = useState("");
   const [authorEmail, setAuthorEmail] = useState("");
   const [resolving, setResolving] = useState(false);
@@ -122,16 +114,16 @@ export function OwnerActionCenter() {
   const load = useCallback(async () => {
     if (pathname === "/login") return;
     try {
-      const response = await fetch("/api/brain/autonomy", { cache: "no-store" });
-      const payload = await response.json() as AutonomyResponse;
-      const snapshot = record(payload.snapshot);
-      const current = record(snapshot.current);
-      setConnected(Boolean(payload.connected));
-      setGate(text(current.needs_human));
-      setBlockers(text(current.blockers));
-      setObjective(text(current.current_objective));
+      const response = await fetch("/api/os/snapshot", { cache: "no-store" });
+      const payload = await response.json() as OsSnapshotResponse;
+      setConnected(response.ok && payload.telemetry?.stateFeed !== false);
+      setRuntimeState(String(payload.runtime?.state || ""));
+      setGate(text(payload.mission?.needsHuman));
+      setBlockers(text(payload.mission?.blockers));
+      setObjective(text(payload.mission?.objective));
     } catch {
       setConnected(false);
+      setRuntimeState("");
     }
   }, [pathname]);
 
@@ -141,7 +133,7 @@ export function OwnerActionCenter() {
     return () => window.clearInterval(timer);
   }, [load]);
 
-  const needsAction = connected && !gateIsClear(gate);
+  const needsAction = connected && runtimeState === "NEEDS_HUMAN";
   const gitAuthorAction = isGitAuthorGate(gate, blockers);
   const explanation = useMemo(() => explainAction(gate, blockers), [gate, blockers]);
 
