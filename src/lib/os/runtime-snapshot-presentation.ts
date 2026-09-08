@@ -8,8 +8,19 @@ export type PresentedRuntimeSnapshot = RepairedRuntimeSnapshot & {
     fixtureDerivedFromAcceptedPass: boolean;
     rawFixture: string | null;
     rawFixtureNumber: number | null;
+    reviewHistoryProjectedFromExperiments: boolean;
   };
 };
+
+function record(value: unknown): JsonRecord {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {};
+}
+
+function rows(value: unknown): JsonRecord[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is JsonRecord => Boolean(item && typeof item === "object" && !Array.isArray(item)))
+    : [];
+}
 
 function text(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -46,27 +57,44 @@ function computeBudgetExhausted(snapshot: RepairedRuntimeSnapshot) {
   );
 }
 
+function fixtureFromResearchRecord(value: unknown) {
+  const item = record(value);
+  const source = [
+    item.fixture,
+    item.fixture_id,
+    item.task_id,
+    item.taskId,
+    item.case_ref,
+    item.experiment_id,
+    item.hypothesis,
+    item.result,
+    item.title,
+    item.message,
+  ]
+    .map(text)
+    .join(" ");
+  const match = source.match(/FS-I(\d+)/i);
+  return match ? Number(match[1]) : null;
+}
+
 function passFixtureFromRecord(value: unknown) {
-  const record = value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {};
-  if (!Object.keys(record).length) return null;
+  const item = record(value);
+  if (!Object.keys(item).length) return null;
 
   const outcome = [
-    record.verdict,
-    record.outcome,
-    record.overall,
-    record.overall_outcome,
-    record.overallOutcome,
-    record.response_overall,
-    record.responseOverall,
+    item.verdict,
+    item.outcome,
+    item.overall,
+    item.overall_outcome,
+    item.overallOutcome,
+    item.response_overall,
+    item.responseOverall,
   ]
-    .map((item) => normalized(item).toUpperCase())
+    .map((entry) => normalized(entry).toUpperCase())
     .find(Boolean);
 
   if (outcome !== "PASS") return null;
-
-  const source = `${text(record.fixture)} ${text(record.task_id)} ${text(record.taskId)} ${text(record.case_ref)}`;
-  const match = source.match(/FS-I(\d+)/i);
-  return match ? Number(match[1]) : null;
+  return fixtureFromResearchRecord(item);
 }
 
 function acceptedPassFixture(snapshot: RepairedRuntimeSnapshot) {
@@ -77,6 +105,39 @@ function acceptedPassFixture(snapshot: RepairedRuntimeSnapshot) {
   if (!/\bPASS\b/i.test(completed)) return null;
   const match = completed.match(/FS-I(\d+)/i);
   return match ? Number(match[1]) : null;
+}
+
+function projectReviewHistory(sourceSnapshot: unknown) {
+  const source = record(sourceSnapshot);
+  const existingReviews = rows(source.reviews);
+  if (existingReviews.length) {
+    return { sourceSnapshot: source, projected: false };
+  }
+
+  const experiments = record(source.experiments);
+  const experimentRows = rows(experiments.recent || experiments.entries);
+  if (!experimentRows.length) {
+    return { sourceSnapshot: source, projected: false };
+  }
+
+  const reviews = experimentRows
+    .map((item) => {
+      const fixtureNo = fixtureFromResearchRecord(item);
+      return fixtureNo ? { ...item, fixture: `FS-I${fixtureNo}` } : item;
+    })
+    .filter((item) => fixtureFromResearchRecord(item) !== null);
+
+  if (!reviews.length) {
+    return { sourceSnapshot: source, projected: false };
+  }
+
+  return {
+    sourceSnapshot: {
+      ...source,
+      reviews,
+    },
+    projected: true,
+  };
 }
 
 export function presentRuntimeSnapshot(snapshot: RepairedRuntimeSnapshot): PresentedRuntimeSnapshot {
@@ -139,8 +200,11 @@ export function presentRuntimeSnapshot(snapshot: RepairedRuntimeSnapshot): Prese
     ? rawFixtureNumber + 1
     : rawFixtureNumber;
 
+  const reviewProjection = projectReviewHistory(snapshot.sourceSnapshot);
+
   return {
     ...snapshot,
+    sourceSnapshot: reviewProjection.sourceSnapshot,
     runtime,
     mission: {
       ...snapshot.mission,
@@ -155,6 +219,7 @@ export function presentRuntimeSnapshot(snapshot: RepairedRuntimeSnapshot): Prese
       fixtureDerivedFromAcceptedPass: deriveNextFixture,
       rawFixture,
       rawFixtureNumber,
+      reviewHistoryProjectedFromExperiments: reviewProjection.projected,
     },
   };
 }
