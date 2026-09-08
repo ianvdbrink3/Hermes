@@ -1,5 +1,5 @@
-export const OS_VERSION = "0.7.1";
-export const OS_RELEASE = "Research Runtime Truth Repair";
+export const OS_VERSION = "0.7.2";
+export const OS_RELEASE = "Research State Presentation Repair";
 
 export function getDeploymentMetadata() {
   const commit = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || "local";
