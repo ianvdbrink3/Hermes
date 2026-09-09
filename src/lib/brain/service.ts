@@ -110,6 +110,16 @@ export async function startBrainRun(environment: BrainEnvironment, input: string
     };
   }
 
+  if (process.env.HERMES_ATOMIC_MANUAL_ADMISSION !== "true") {
+    return {
+      run_id: `blocked_${Date.now()}`,
+      status: "failed",
+      error: "Browser-started Hermes research runs remain disabled until VPS-side atomic admission and reservation accounting are authoritative.",
+      environment: "research",
+      profile: "his-research",
+    };
+  }
+
   const config = getBrainProfileConfig("research");
   if (!config.configured) {
     return {
