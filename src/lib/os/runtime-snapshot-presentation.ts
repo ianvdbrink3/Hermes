@@ -213,6 +213,10 @@ export function presentRuntimeSnapshot(snapshot: RepairedRuntimeSnapshot): Prese
       nextFixture: deriveNextFixture && displayedFixtureNumber && displayedFixtureNumber < 30
         ? `FS-I${displayedFixtureNumber + 1}`
         : snapshot.mission.nextFixture,
+      // The presented contract describes what is actionable *now*. Keep the
+      // original future-approval wording in sourceSnapshot/presentation metadata,
+      // but do not expose it as an active current human gate to UI consumers.
+      needsHuman: futureOnlyGate ? null : snapshot.mission.needsHuman,
     },
     presentation: {
       humanGateFutureOnly: futureOnlyGate,
