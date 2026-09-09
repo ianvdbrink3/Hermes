@@ -108,6 +108,18 @@ function humanGateRequirement(value: unknown): HumanGateRequirement {
       return false;
     }
 
+    // A mission can explicitly say that there is no action for the current
+    // repository-local phase while documenting approvals that will be needed
+    // later (paper/live/provider/broker/risk). Those future boundaries are not
+    // an active human gate and must not turn the current runtime red.
+    if (
+      /^(?:none|nothing) for current\b/.test(normalized) ||
+      /^no current (?:human |owner )?(?:action|approval|decision|gate)\b/.test(normalized) ||
+      /^geen huidige (?:menselijke )?(?:actie|goedkeuring|beslissing)\b/.test(normalized)
+    ) {
+      return false;
+    }
+
     if (
       /^(?:no|geen)\b.*\b(?:human|mens|owner|action|actie|gate|approval|goedkeuring|decision|beslissing|required|nodig)\b/.test(
         normalized,
