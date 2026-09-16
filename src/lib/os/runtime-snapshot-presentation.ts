@@ -1,4 +1,5 @@
 import type { RepairedRuntimeSnapshot } from "@/lib/os/runtime-snapshot-repair";
+import { buildFixtureCards, selectPresentedFixture } from "@/lib/os/fixture-review";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -74,36 +75,6 @@ function fixtureFromResearchRecord(value: unknown) {
     .map(text)
     .join(" ");
   const match = source.match(/FS-I(\d+)/i);
-  return match ? Number(match[1]) : null;
-}
-
-function passFixtureFromRecord(value: unknown) {
-  const item = record(value);
-  if (!Object.keys(item).length) return null;
-
-  const outcome = [
-    item.verdict,
-    item.outcome,
-    item.overall,
-    item.overall_outcome,
-    item.overallOutcome,
-    item.response_overall,
-    item.responseOverall,
-  ]
-    .map((entry) => normalized(entry).toUpperCase())
-    .find(Boolean);
-
-  if (outcome !== "PASS") return null;
-  return fixtureFromResearchRecord(item);
-}
-
-function acceptedPassFixture(snapshot: RepairedRuntimeSnapshot) {
-  const direct = passFixtureFromRecord(snapshot.lastReview);
-  if (direct) return direct;
-
-  const completed = text(snapshot.mission.lastCompletedWork);
-  if (!/\bPASS\b/i.test(completed)) return null;
-  const match = completed.match(/FS-I(\d+)/i);
   return match ? Number(match[1]) : null;
 }
 
@@ -186,19 +157,12 @@ export function presentRuntimeSnapshot(snapshot: RepairedRuntimeSnapshot): Prese
     }
   }
 
-  const passFixture = acceptedPassFixture(snapshot);
-  const deriveNextFixture = Boolean(
-    snapshot.scheduler.found &&
-    snapshot.scheduler.active &&
-    rawFixtureNumber !== null &&
-    passFixture === rawFixtureNumber &&
-    rawFixtureNumber >= 11 &&
-    rawFixtureNumber < 30,
-  );
-
-  const displayedFixtureNumber = deriveNextFixture && rawFixtureNumber !== null
-    ? rawFixtureNumber + 1
-    : rawFixtureNumber;
+  const fixtureCards = buildFixtureCards(snapshot);
+  const fixtureSelection = selectPresentedFixture(snapshot.fixtureReview, fixtureCards, {
+    fixture: rawFixture,
+    fixtureNumber: rawFixtureNumber,
+    nextFixture: snapshot.mission.nextFixture,
+  });
 
   const reviewProjection = projectReviewHistory(snapshot.sourceSnapshot);
 
@@ -208,11 +172,9 @@ export function presentRuntimeSnapshot(snapshot: RepairedRuntimeSnapshot): Prese
     runtime,
     mission: {
       ...snapshot.mission,
-      fixture: displayedFixtureNumber ? `FS-I${displayedFixtureNumber}` : snapshot.mission.fixture,
-      fixtureNumber: displayedFixtureNumber,
-      nextFixture: deriveNextFixture && displayedFixtureNumber && displayedFixtureNumber < 30
-        ? `FS-I${displayedFixtureNumber + 1}`
-        : snapshot.mission.nextFixture,
+      fixture: fixtureSelection.fixture,
+      fixtureNumber: fixtureSelection.fixtureNumber,
+      nextFixture: fixtureSelection.nextFixture,
       // The presented contract describes what is actionable *now*. Keep the
       // original future-approval wording in sourceSnapshot/presentation metadata,
       // but do not expose it as an active current human gate to UI consumers.
@@ -220,7 +182,7 @@ export function presentRuntimeSnapshot(snapshot: RepairedRuntimeSnapshot): Prese
     },
     presentation: {
       humanGateFutureOnly: futureOnlyGate,
-      fixtureDerivedFromAcceptedPass: deriveNextFixture,
+      fixtureDerivedFromAcceptedPass: false,
       rawFixture,
       rawFixtureNumber,
       reviewHistoryProjectedFromExperiments: reviewProjection.projected,

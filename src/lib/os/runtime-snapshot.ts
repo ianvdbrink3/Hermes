@@ -1,4 +1,5 @@
 import { brainHermesFetch, getBrainProfileConfig } from "@/lib/brain/hermes-client";
+import { parseFixtureReviewSnapshot, type FixtureReviewFeed } from "@/lib/os/fixture-review";
 import { getDeploymentMetadata } from "@/lib/os-version";
 
 type JsonRecord = Record<string, unknown>;
@@ -71,6 +72,7 @@ export type RuntimeSnapshotV1 = {
     estimatedContextBytes: number | null;
     maxContextBytes: number | null;
   };
+  fixtureReview: FixtureReviewFeed;
   lastReview: JsonRecord | null;
   events: JsonRecord[];
   safety: JsonRecord;
@@ -389,6 +391,7 @@ export async function getRuntimeSnapshot(): Promise<RuntimeSnapshotV1> {
   const providerExplicit = explicitProviderState(snapshot);
   const state = determineRuntimeState(snapshot, stateResult.connected, schedulerResult.connected, scheduler, cooldownActive, providerExplicit);
   const compute = computeView(snapshot);
+  const fixtureReview = parseFixtureReviewSnapshot(snapshot);
   const events = normalizedEvents(snapshot);
   const lastReviewCandidate = record(runtimeRecord.last_review || snapshot.last_review);
 
@@ -429,6 +432,7 @@ export async function getRuntimeSnapshot(): Promise<RuntimeSnapshotV1> {
     },
     scheduler,
     compute,
+    fixtureReview,
     lastReview: Object.keys(lastReviewCandidate).length ? lastReviewCandidate : null,
     events,
     safety: record(current.safety || snapshot.safety),

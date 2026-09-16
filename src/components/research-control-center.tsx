@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { activeFixture, buildFixtureCards, type FixtureReviewFeed, type FixtureReviewItem } from "@/lib/os/fixture-review";
+import { requestResearchSnapshotRefresh, subscribeResearchSnapshotRefresh } from "@/lib/os/research-snapshot-refresh";
 import { HermesShell, type HermesTone } from "./hermes-shell";
 import styles from "./research-control-center.module.css";
 
@@ -67,6 +69,7 @@ type Snapshot = {
     estimatedContextBytes?: number | null;
     maxContextBytes?: number | null;
   };
+  fixtureReview?: FixtureReviewFeed;
   lastReview?: RecordLike | null;
   events?: RecordLike[];
   safety?: RecordLike;
@@ -85,8 +88,6 @@ type Snapshot = {
   sourceSnapshot?: RecordLike;
 };
 
-type PipelineState = "done" | "active" | "waiting" | "next" | "pending" | "unknown";
-type PipelineStep = { id: string; number: number; state: PipelineState };
 
 function record(value: unknown): RecordLike {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as RecordLike) : {};
@@ -170,48 +171,23 @@ function heroTitle(state?: RuntimeState) {
   return "Hermes Research werkt gecontroleerd en zelfstandig.";
 }
 
-function reviewedFixtures(snapshot: Snapshot | null) {
-  const proven = new Set<number>();
-  const source = record(snapshot?.sourceSnapshot);
-  const explicitReviews = rows(source.reviews || record(source.runtime).reviews);
-  const candidates = [...explicitReviews, ...(snapshot?.events || [])];
-
-  for (const item of candidates) {
-    const fixtureSource = `${text(item.fixture, "")} ${text(item.task_id, "")} ${text(item.taskId, "")} ${text(item.event, "")}`;
-    const match = fixtureSource.match(/FS-I(\d+)/i);
-    const outcomes = [
-      item.verdict,
-      item.outcome,
-      item.semantic_outcome,
-      item.semanticOutcome,
-      item.overall_outcome,
-      item.overallOutcome,
-      item.review_outcome,
-      item.reviewOutcome,
-    ]
-      .map((value) => text(value, "").trim().toUpperCase())
-      .filter(Boolean);
-
-    if (match && outcomes.includes("PASS")) proven.add(Number(match[1]));
-  }
-
-  return proven;
+function pipelineClass(item: FixtureReviewItem) {
+  if (item.tone === "positive") return styles.pipeline_done;
+  if (item.tone === "warning") return styles.pipeline_waiting;
+  if (item.tone === "attention") return styles.pipeline_active;
+  if (item.tone === "negative") return styles.pipeline_reject;
+  if (item.tone === "muted") return styles.pipeline_unknown;
+  return item.status === "NEXT" ? styles.pipeline_next : styles.pipeline_pending;
 }
 
-function buildPipeline(snapshot: Snapshot | null): PipelineStep[] {
-  const current = snapshot?.mission?.fixtureNumber;
-  if (!current) return [];
-  const proven = reviewedFixtures(snapshot);
-  const state = snapshot?.runtime?.state;
-  return Array.from({ length: 20 }, (_, index) => {
-    const number = 11 + index;
-    let stepState: PipelineState = "pending";
-    if (proven.has(number)) stepState = "done";
-    else if (number < current) stepState = "unknown";
-    else if (number === current) stepState = state === "WAITING_PROVIDER" || state === "WAITING_PROVIDER_UNVERIFIED" || state === "WAITING_BUDGET" || state === "WAITING_SPACING" ? "waiting" : "active";
-    else if (number === current + 1) stepState = "next";
-    return { id: `FS-I${number}`, number, state: stepState };
-  });
+function fixtureIcon(item: FixtureReviewItem) {
+  if (item.status === "PASS") return "✓";
+  if (item.status.startsWith("WAIT_") || item.status === "INCONCLUSIVE") return "◷";
+  if (item.status === "CURRENT") return "●";
+  if (item.status === "REJECT") return "×";
+  if (item.status === "NEXT") return "→";
+  if (item.status === "NOT_IN_FEED") return "?";
+  return "○";
 }
 
 function connectionLabel(state?: string) {
@@ -251,10 +227,12 @@ export function ResearchControlCenter() {
     const tick = () => {
       if (document.visibilityState === "visible") void refresh();
     };
-    const timer = window.setInterval(tick, 30_000);
+    const timer = window.setInterval(tick, 15_000);
+    const unsubscribe = subscribeResearchSnapshotRefresh(() => void refresh());
     document.addEventListener("visibilitychange", tick);
     return () => {
       window.clearInterval(timer);
+      unsubscribe();
       document.removeEventListener("visibilitychange", tick);
     };
   }, [refresh]);
@@ -264,7 +242,8 @@ export function ResearchControlCenter() {
   const backlog = record(source.backlog);
   const recentExperiments = rows(experiments.recent || experiments.entries).slice(0, 5);
   const backlogEntries = rows(backlog.entries).slice(0, 6);
-  const steps = useMemo(() => buildPipeline(snapshot), [snapshot]);
+  const steps = useMemo(() => buildFixtureCards(snapshot || {}), [snapshot]);
+  const currentFixture = useMemo(() => activeFixture(steps), [steps]);
   const tone = stateTone(snapshot?.runtime?.state);
   const compute = snapshot?.compute;
   const events = snapshot?.events || [];
@@ -277,7 +256,7 @@ export function ResearchControlCenter() {
       status={stateLabel(snapshot?.runtime?.state)}
       statusTone={tone}
       wide
-      actions={<button onClick={() => void refresh()} disabled={loading}>{loading ? "Verversen…" : "Ververs"}</button>}
+      actions={<button onClick={requestResearchSnapshotRefresh} disabled={loading}>{loading ? "Verversen…" : "Ververs"}</button>}
     >
       <section className={`${styles.runtimeHero} ${styles[`runtimeHero_${tone}`]}`}>
         <div className={styles.heroTop}>
@@ -302,8 +281,15 @@ export function ResearchControlCenter() {
       </section>
 
       <section className={styles.section}>
-        <div className={styles.sectionHead}><div><span>Onderzoekspipeline</span><h2>Waar Hermes nu zit</h2></div><small>{snapshot?.mission?.fixture ? `${snapshot.mission.fixture} huidig` : "Fixture niet beschikbaar"}</small></div>
-        {steps.length ? <div className={styles.pipeline}>{steps.map((step) => <div key={step.id} className={`${styles.pipelineStep} ${styles[`pipeline_${step.state}`]}`}><span>{step.state === "done" ? "✓" : step.state === "waiting" ? "◷" : step.state === "active" ? "●" : step.state === "next" ? "→" : step.state === "unknown" ? "?" : "○"}</span><strong>{step.id}</strong><small>{step.state === "done" ? "bewezen pass" : step.state === "waiting" ? "wacht" : step.state === "active" ? "huidig" : step.state === "next" ? "hierna" : step.state === "unknown" ? "niet in feed" : "pending"}</small></div>)}</div> : <div className={styles.notice}>De actieve fixture staat niet in de statefeed. Het OS tekent daarom geen verzonnen voortgang.</div>}
+        <div className={styles.sectionHead}><div><span>Onderzoekspipeline</span><h2>Waar Hermes nu zit</h2></div><small>{currentFixture ? `${currentFixture.fixtureId} huidig` : "Geen actuele fixture in feed"}</small></div>
+        <div className={styles.pipeline}>{steps.map((step) => <div key={step.fixtureId} className={`${styles.pipelineStep} ${pipelineClass(step)}`}><span>{fixtureIcon(step)}</span><strong>{step.fixtureId}</strong><small>{step.label}</small></div>)}</div>
+        {currentFixture?.status === "WAIT_RETRY_WINDOW" ? <div className={styles.fixtureWaitDetail}>
+          <strong>{currentFixture.fixtureId} · {currentFixture.label}</strong>
+          <span>{currentFixture.sameTaskStartsUsed !== null && currentFixture.sameTaskStartsLimit !== null ? `${currentFixture.sameTaskStartsUsed}/${currentFixture.sameTaskStartsLimit} starts gebruikt` : "Startverbruik niet beschikbaar"}</span>
+          <span>Volgende poging: {formatDate(currentFixture.earliestRetryAt, true)}</span>
+          <span>{currentFixture.semanticVerdict === "PASS" ? "Semantisch PASS" : "Geen semantisch PASS"}</span>
+          <span>{currentFixture.schedulerActive === true ? "Scheduler actief" : currentFixture.schedulerActive === false ? "Scheduler niet actief" : "Schedulerstatus onbekend"}</span>
+        </div> : null}
       </section>
 
       <section className={styles.columns}>
