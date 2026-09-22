@@ -1,8 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { activeFixture, buildFixtureCards, type FixtureReviewFeed, type FixtureReviewItem } from "@/lib/os/fixture-review";
-import { requestResearchSnapshotRefresh, subscribeResearchSnapshotRefresh } from "@/lib/os/research-snapshot-refresh";
+import {
+  activeFixture,
+  buildFixtureCards,
+  latestPassedFixture,
+  nextFixture,
+  type FixtureReviewFeed,
+} from "@/lib/os/fixture-review";
 import { HermesShell, type HermesTone } from "./hermes-shell";
 import styles from "./research-control-center.module.css";
 
@@ -88,31 +93,20 @@ type Snapshot = {
   sourceSnapshot?: RecordLike;
 };
 
-
-function record(value: unknown): RecordLike {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as RecordLike) : {};
-}
-
-function rows(value: unknown): RecordLike[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is RecordLike => Boolean(item && typeof item === "object" && !Array.isArray(item)))
-    : [];
-}
-
 function text(value: unknown, fallback = "—") {
   if (value === null || value === undefined || value === "") return fallback;
-  if (Array.isArray(value)) return value.map((item) => String(item)).join(" · ");
+  if (Array.isArray(value)) return value.map(String).join(" · ");
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
 
-function compact(value: unknown, max = 200) {
+function compact(value: unknown, max = 210) {
   const source = text(value, "").replace(/\s+/g, " ").trim();
   if (!source) return "—";
-  return source.length > max ? `${source.slice(0, max - 1)}…` : source;
+  return source.length > max ? source.slice(0, max - 1) + "…" : source;
 }
 
-function formatDate(value: unknown, seconds = false) {
+function formatDate(value: unknown) {
   if (!value) return "—";
   const date = new Date(typeof value === "number" && value < 100_000_000_000 ? value * 1000 : String(value));
   if (Number.isNaN(date.getTime())) return text(value);
@@ -121,7 +115,6 @@ function formatDate(value: unknown, seconds = false) {
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-    ...(seconds ? { second: "2-digit" } : {}),
   }).format(date);
 }
 
@@ -131,7 +124,7 @@ function number(value: number | null | undefined) {
 
 function ratio(value: number | null | undefined, max: number | null | undefined) {
   if (value === null || value === undefined || max === null || max === undefined) return "—";
-  return `${number(value)} / ${number(max)}`;
+  return number(value) + " / " + number(max);
 }
 
 function stateTone(state?: RuntimeState): HermesTone {
@@ -143,64 +136,28 @@ function stateTone(state?: RuntimeState): HermesTone {
 
 function stateLabel(state?: RuntimeState) {
   const labels: Partial<Record<RuntimeState, string>> = {
-    READY: "Klaar voor volgende review",
-    RUNNING: "Onderzoek draait",
-    WAITING_PROVIDER: "Wacht op modelprovider",
-    WAITING_PROVIDER_UNVERIFIED: "Providerstatus moet worden bevestigd",
-    WAITING_BUDGET: "Wacht op compute-budget",
-    WAITING_SPACING: "Wacht op minimale tussenruimte",
+    READY: "Klaar",
+    RUNNING: "Review actief",
+    WAITING_PROVIDER: "Provider cooldown",
+    WAITING_PROVIDER_UNVERIFIED: "Providerstatus onzeker",
+    WAITING_BUDGET: "Compute-budget bereikt",
+    WAITING_SPACING: "Wachtvenster actief",
     NEEDS_HUMAN: "Jouw actie nodig",
-    BLOCKED_UNVERIFIED_USAGE: "Geblokkeerd: AI-gebruik niet verifieerbaar",
-    BLOCKED_INTEGRITY: "Geblokkeerd: integriteitscontrole",
-    IDLE: "Onderzoeksrouter niet actief",
-    DEGRADED: "Gedeeltelijk beschikbaar",
-    OFFLINE: "Research-runtime offline",
+    BLOCKED_UNVERIFIED_USAGE: "Usage niet verifieerbaar",
+    BLOCKED_INTEGRITY: "Integriteitsblokkade",
+    IDLE: "Router idle",
+    DEGRADED: "Beperkt beschikbaar",
+    OFFLINE: "Runtime offline",
   };
   return state ? labels[state] || state : "Status laden…";
 }
 
-function heroTitle(state?: RuntimeState) {
-  if (state === "WAITING_PROVIDER") return "Hermes wacht veilig op nieuwe modelcapaciteit.";
-  if (state === "WAITING_PROVIDER_UNVERIFIED") return "Hermes ziet een providerprobleem, maar verzint geen retrytijd.";
-  if (state === "WAITING_BUDGET") return "Hermes respecteert het ingestelde AI-budget.";
-  if (state === "NEEDS_HUMAN") return "Hermes wacht op een echte menselijke beslissing.";
-  if (state === "BLOCKED_UNVERIFIED_USAGE") return "Hermes stopt omdat AI-gebruik niet betrouwbaar kan worden vastgesteld.";
-  if (state === "BLOCKED_INTEGRITY") return "Hermes stopt omdat een verificatie niet klopt.";
-  if (state === "OFFLINE") return "De research-runtime is niet bereikbaar.";
-  if (state === "RUNNING") return "Hermes voert nu een gecontroleerde onderzoeksreview uit.";
-  return "Hermes Research werkt gecontroleerd en zelfstandig.";
-}
-
-function pipelineClass(item: FixtureReviewItem) {
-  if (item.tone === "positive") return styles.pipeline_done;
-  if (item.tone === "warning") return styles.pipeline_waiting;
-  if (item.tone === "attention") return styles.pipeline_active;
-  if (item.tone === "negative") return styles.pipeline_reject;
-  if (item.tone === "muted") return styles.pipeline_unknown;
-  return item.status === "NEXT" ? styles.pipeline_next : styles.pipeline_pending;
-}
-
-function fixtureIcon(item: FixtureReviewItem) {
-  if (item.status === "PASS") return "✓";
-  if (item.status.startsWith("WAIT_") || item.status === "INCONCLUSIVE") return "◷";
-  if (item.status === "CURRENT") return "●";
-  if (item.status === "REJECT") return "×";
-  if (item.status === "NEXT") return "→";
-  if (item.status === "NOT_IN_FEED") return "?";
-  return "○";
-}
-
-function connectionLabel(state?: string) {
-  if (state === "connected") return "Verbonden";
-  if (state === "not_configured") return "Niet ingesteld";
-  if (state === "auth_error") return "Authenticatie mislukt";
-  if (state === "offline") return "Offline";
-  if (state === "degraded") return "Beperkt";
-  return "Onbekend";
-}
-
 function eventTitle(item: RecordLike) {
   return compact(item.title || item.event || item.type || item.state || "Runtime-event", 120);
+}
+
+function eventBody(item: RecordLike) {
+  return compact(item.message || item.reason || item.result || item.detail || item.status, 180);
 }
 
 export function ResearchControlCenter() {
@@ -212,7 +169,7 @@ export function ResearchControlCenter() {
     setLoading(true);
     try {
       const response = await fetch("/api/os/snapshot", { cache: "no-store" });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error("HTTP " + response.status);
       setSnapshot((await response.json()) as Snapshot);
       setLastRefresh(new Date());
     } catch {
@@ -224,142 +181,196 @@ export function ResearchControlCenter() {
 
   useEffect(() => {
     void refresh();
-    const tick = () => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refresh();
+    }, 15_000);
+    const onVisibility = () => {
       if (document.visibilityState === "visible") void refresh();
     };
-    const timer = window.setInterval(tick, 15_000);
-    const unsubscribe = subscribeResearchSnapshotRefresh(() => void refresh());
-    document.addEventListener("visibilitychange", tick);
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       window.clearInterval(timer);
-      unsubscribe();
-      document.removeEventListener("visibilitychange", tick);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [refresh]);
 
-  const source = record(snapshot?.sourceSnapshot);
-  const experiments = record(source.experiments);
-  const backlog = record(source.backlog);
-  const recentExperiments = rows(experiments.recent || experiments.entries).slice(0, 5);
-  const backlogEntries = rows(backlog.entries).slice(0, 6);
-  const steps = useMemo(() => buildFixtureCards(snapshot || {}), [snapshot]);
-  const currentFixture = useMemo(() => activeFixture(steps), [steps]);
-  const tone = stateTone(snapshot?.runtime?.state);
+  const cards = useMemo(() => buildFixtureCards(snapshot || {}), [snapshot]);
+  const current = useMemo(() => activeFixture(cards), [cards]);
+  const next = useMemo(() => nextFixture(cards), [cards]);
+  const lastPass = useMemo(() => latestPassedFixture(cards), [cards]);
+  const passed = cards.filter((item) => item.status === "PASS").length;
+  const decided = cards.filter((item) => ["PASS", "INCONCLUSIVE", "REJECT"].includes(item.status)).reverse().slice(0, 8);
+  const events = (snapshot?.events || []).slice(0, 8);
   const compute = snapshot?.compute;
-  const events = snapshot?.events || [];
-  const providerBlocked = snapshot?.provider?.state === "COOLDOWN" || snapshot?.provider?.state === "LIMITED_UNVERIFIED";
-  const execution = text(snapshot?.safety?.execution, "Niet gerapporteerd");
+  const state = snapshot?.runtime?.state;
+  const tone = stateTone(state);
+  const status = stateLabel(state);
+  const currentIdentity = current?.fixtureId || snapshot?.mission?.taskId || snapshot?.mission?.fixture || "Geen actieve review";
+
+  const progress = cards.length ? Math.round((passed / cards.length) * 100) : 0;
 
   return (
     <HermesShell
       active="onderzoek"
-      status={stateLabel(snapshot?.runtime?.state)}
+      status={status}
       statusTone={tone}
       wide
-      actions={<button onClick={requestResearchSnapshotRefresh} disabled={loading}>{loading ? "Verversen…" : "Ververs"}</button>}
+      actions={<button onClick={() => void refresh()} disabled={loading}>{loading ? "Laden…" : "Ververs"}</button>}
     >
-      <section className={`${styles.runtimeHero} ${styles[`runtimeHero_${tone}`]}`}>
-        <div className={styles.heroTop}>
-          <div><span className={styles.eyebrow}>Onderzoeksstatus</span><div className={styles.runtimeState}><i className={`${styles.dot} ${styles[`dot_${tone}`]}`} /><strong>{stateLabel(snapshot?.runtime?.state)}</strong></div></div>
-          <div className={styles.readOnly}>ALLEEN OBSERVATIE</div>
+      <section className={styles.header}>
+        <div>
+          <span className={styles.eyebrow}>Research control</span>
+          <div className={styles.stateLine}><i className={styles["tone_" + tone]} /><strong>{status}</strong></div>
+          <h1>{currentIdentity}</h1>
+          <p>{compact(snapshot?.mission?.objective || snapshot?.runtime?.reason, 300)}</p>
         </div>
-        <h1>{heroTitle(snapshot?.runtime?.state)}</h1>
-        <p>{snapshot?.runtime?.reason || "Het OS toont de actuele research-state uit één versieerbaar runtimecontract. Het leidt geen providerstatus of afgeronde review af zonder bewijs."}</p>
-        <div className={styles.heroGrid}>
-          <div><span>Huidige stap</span><strong>{snapshot?.mission?.fixture || snapshot?.mission?.taskId || "—"}</strong><small>{compact(snapshot?.mission?.taskId, 90)}</small></div>
-          <div><span>Modelstatus</span><strong>{providerBlocked ? "Geblokkeerd / wachtend" : "Niet geblokkeerd"}</strong><small>{snapshot?.provider?.model || "gpt-5.6-sol"}</small></div>
-          <div><span>Volgende poging</span><strong>{snapshot?.provider?.cooldownActive ? formatDate(snapshot?.provider?.retryNotBeforeUtc, true) : formatDate(snapshot?.scheduler?.nextRun, true)}</strong><small>{snapshot?.provider?.cooldownActive ? "exacte cooldown" : "volgende schedulertick"}</small></div>
-          <div><span>Laatste resultaat</span><strong>{compact(snapshot?.mission?.lastCompletedWork, 110)}</strong></div>
+        <div className={styles.headerMeta}>
+          <span>Laatste refresh</span>
+          <strong>{lastRefresh ? formatDate(lastRefresh.toISOString()) : "—"}</strong>
+          <small>{snapshot?.runtime?.readOnly ? "Read-only control plane" : "Runtime state"}</small>
         </div>
       </section>
 
-      <section className={styles.quickGrid}>
-        <article><span>AI-run vanuit dit scherm</span><strong>Nee</strong><p>Deze pagina leest alleen state en start geen model.</p></article>
-        <article><span>Open reservations</span><strong>{number(compute?.openReservations)}</strong><p>{compute?.available ? "Uit compute-telemetrie." : "Nog niet in de VPS-statefeed."}</p></article>
-        <article><span>Voided reservations</span><strong>{number(compute?.voidedReservations)}</strong><p>{compute?.available ? "Veilig geneutraliseerde starts." : "Nog niet in de VPS-statefeed."}</p></article>
-        <article><span>Execution</span><strong className={styles.locked}>{execution}</strong><p>Browseractivatie is hard uitgeschakeld.</p></article>
+      <section className={styles.topGrid}>
+        <article className={styles.currentCard}>
+          <span>Current</span>
+          <strong>{currentIdentity}</strong>
+          <p>{compact(snapshot?.mission?.inProgress || snapshot?.runtime?.reason, 230)}</p>
+          {current?.status ? <b>{current.label}</b> : null}
+        </article>
+
+        <article>
+          <span>Next</span>
+          <strong>{next?.fixtureId || compact(snapshot?.mission?.nextFixture || snapshot?.mission?.next, 70)}</strong>
+          <p>{compact(snapshot?.mission?.next, 190)}</p>
+        </article>
+
+        <article>
+          <span>Provider</span>
+          <strong>{snapshot?.provider?.cooldownActive ? "Cooldown" : snapshot?.provider?.state || "Onbekend"}</strong>
+          <p>{snapshot?.provider?.retryNotBeforeUtc ? "Retry na " + formatDate(snapshot.provider.retryNotBeforeUtc) : snapshot?.provider?.model || "Geen modelstatus"}</p>
+        </article>
+
+        <article>
+          <span>Scheduler</span>
+          <strong>{snapshot?.scheduler?.active ? "Actief" : "Niet actief"}</strong>
+          <p>{snapshot?.scheduler?.nextRun ? "Volgende check " + formatDate(snapshot.scheduler.nextRun) : compact(snapshot?.scheduler?.lastStatus, 160)}</p>
+        </article>
       </section>
 
-      <section className={styles.section}>
-        <div className={styles.sectionHead}><div><span>Onderzoekspipeline</span><h2>Waar Hermes nu zit</h2></div><small>{currentFixture ? `${currentFixture.fixtureId} huidig` : "Geen actuele fixture in feed"}</small></div>
-        <div className={styles.pipeline}>{steps.map((step) => <div key={step.fixtureId} className={`${styles.pipelineStep} ${pipelineClass(step)}`}><span>{fixtureIcon(step)}</span><strong>{step.fixtureId}</strong><small>{step.label}</small></div>)}</div>
-        {currentFixture?.status === "WAIT_RETRY_WINDOW" ? <div className={styles.fixtureWaitDetail}>
-          <strong>{currentFixture.fixtureId} · {currentFixture.label}</strong>
-          <span>{currentFixture.sameTaskStartsUsed !== null && currentFixture.sameTaskStartsLimit !== null ? `${currentFixture.sameTaskStartsUsed}/${currentFixture.sameTaskStartsLimit} starts gebruikt` : "Startverbruik niet beschikbaar"}</span>
-          <span>Volgende poging: {formatDate(currentFixture.earliestRetryAt, true)}</span>
-          <span>{currentFixture.semanticVerdict === "PASS" ? "Semantisch PASS" : "Geen semantisch PASS"}</span>
-          <span>{currentFixture.schedulerActive === true ? "Scheduler actief" : currentFixture.schedulerActive === false ? "Scheduler niet actief" : "Schedulerstatus onbekend"}</span>
-        </div> : null}
+      <section className={styles.progressPanel}>
+        <div className={styles.progressHead}>
+          <div>
+            <span>Fixture chain</span>
+            <h2>{passed}/{cards.length} bewezen PASS</h2>
+          </div>
+          <div className={styles.progressRight}>
+            <strong>{progress}%</strong>
+            <small>{lastPass ? "Laatste: " + lastPass.fixtureId : "Nog geen bewezen fixture-PASS"}</small>
+          </div>
+        </div>
+        <div className={styles.progressTrack}><i style={{ width: progress + "%" }} /></div>
+        <div className={styles.fixtureStrip}>
+          {cards.map((item) => (
+            <span
+              key={item.fixtureId}
+              title={item.fixtureId + " · " + item.label}
+              className={
+                item.status === "PASS"
+                  ? styles.fixturePass
+                  : item === current
+                    ? styles.fixtureCurrent
+                    : item.status === "REJECT"
+                      ? styles.fixtureReject
+                      : item.status === "INCONCLUSIVE" || item.status.startsWith("WAIT_")
+                        ? styles.fixtureWait
+                        : styles.fixturePending
+              }
+            >
+              {item.number}
+            </span>
+          ))}
+        </div>
       </section>
 
       <section className={styles.columns}>
-        <div className={styles.card}>
-          <div className={styles.cardHead}><span>AI & compute</span><h2>Budget en gebruik</h2></div>
-          <div className={styles.metricRows}>
-            <div><span>Runs 24 uur</span><strong>{ratio(compute?.runs24h, compute?.maxRuns24h)}</strong></div>
-            <div><span>Prompttokens 24 uur</span><strong>{ratio(compute?.promptTokens24h, compute?.maxPromptTokens24h)}</strong></div>
-            <div><span>Totale tokens 24 uur</span><strong>{ratio(compute?.totalTokens24h, compute?.maxTotalTokens24h)}</strong></div>
-            <div><span>Contextbytes</span><strong>{ratio(compute?.estimatedContextBytes, compute?.maxContextBytes)}</strong></div>
+        <div className={styles.panel}>
+          <header className={styles.panelHead}><div><span>Review history</span><h2>Recente bounded reviews</h2></div></header>
+          <div className={styles.reviewList}>
+            {decided.length ? decided.map((item) => (
+              <article key={item.fixtureId + item.status}>
+                <div>
+                  <strong>{item.fixtureId}</strong>
+                  <p>{item.semanticVerdict ? "Semantisch verdict: " + item.semanticVerdict : item.label}</p>
+                </div>
+                <span className={
+                  item.status === "PASS"
+                    ? styles.pass
+                    : item.status === "REJECT"
+                      ? styles.reject
+                      : styles.wait
+                }>{item.label}</span>
+              </article>
+            )) : <div className={styles.empty}>Nog geen geverifieerde fixture-reviewhistorie in de statefeed.</div>}
           </div>
-          {!compute?.available && <div className={styles.telemetryGap}><strong>Exacte compute-telemetrie ontbreekt nog</strong><p>De weblaag vult geen budgetcijfers zelf in. Zodra de VPS-statefeed budget, usage en reservation-ledgers publiceert, verschijnen ze hier automatisch.</p></div>}
         </div>
 
-        <div className={styles.card}>
-          <div className={styles.cardHead}><span>Systeemgezondheid</span><h2>Wat functioneert</h2></div>
+        <div className={styles.panel}>
+          <header className={styles.panelHead}><div><span>Compute</span><h2>Budget & accounting</h2></div></header>
+          <dl className={styles.metricRows}>
+            <div><dt>Runs 24u</dt><dd>{compute?.available ? ratio(compute.runs24h, compute.maxRuns24h) : "—"}</dd></div>
+            <div><dt>Prompttokens</dt><dd>{compute?.available ? ratio(compute.promptTokens24h, compute.maxPromptTokens24h) : "—"}</dd></div>
+            <div><dt>Totaaltokens</dt><dd>{compute?.available ? ratio(compute.totalTokens24h, compute.maxTotalTokens24h) : "—"}</dd></div>
+            <div><dt>Open reservations</dt><dd>{number(compute?.openReservations)}</dd></div>
+            <div><dt>Voided</dt><dd>{number(compute?.voidedReservations)}</dd></div>
+            <div><dt>Context</dt><dd>{compute?.estimatedContextBytes !== null && compute?.estimatedContextBytes !== undefined ? ratio(compute.estimatedContextBytes, compute.maxContextBytes) + " B" : "—"}</dd></div>
+          </dl>
+          {!snapshot?.telemetry?.compute ? <div className={styles.telemetryGap}>Compute-telemetrie is niet volledig bevestigd. Hermes vult ontbrekende waarden niet in.</div> : null}
+        </div>
+      </section>
+
+      <section className={styles.columns}>
+        <div className={styles.panel}>
+          <header className={styles.panelHead}><div><span>Mission</span><h2>Wat Hermes probeert af te ronden</h2></div></header>
+          <dl className={styles.definitionRows}>
+            <div><dt>Objective</dt><dd>{text(snapshot?.mission?.objective)}</dd></div>
+            <div><dt>In progress</dt><dd>{text(snapshot?.mission?.inProgress)}</dd></div>
+            <div><dt>Next</dt><dd>{text(snapshot?.mission?.next)}</dd></div>
+            <div><dt>Blockers</dt><dd>{text(snapshot?.mission?.blockers)}</dd></div>
+            <div><dt>Human gate</dt><dd>{text(snapshot?.mission?.needsHuman)}</dd></div>
+          </dl>
+        </div>
+
+        <div className={styles.panel}>
+          <header className={styles.panelHead}><div><span>Runtime</span><h2>Control-plane health</h2></div></header>
           <div className={styles.healthList}>
-            <div className={styles.healthRow}><i className={`${styles.dot} ${styles[`dot_${snapshot?.connections?.research?.state === "connected" ? "good" : "bad"}`]}`} /><div><strong>Research gateway</strong><span>{connectionLabel(snapshot?.connections?.research?.state)}</span></div></div>
-            <div className={styles.healthRow}><i className={`${styles.dot} ${styles[`dot_${snapshot?.scheduler?.found && snapshot?.scheduler?.active ? "good" : "warn"}`]}`} /><div><strong>Research Review Router</strong><span>{snapshot?.scheduler?.found ? (snapshot.scheduler.active ? "Actief" : "Gevonden maar niet actief") : "Niet gevonden — geen legacy fallback"}</span></div></div>
-            <div className={styles.healthRow}><i className={`${styles.dot} ${styles[`dot_${snapshot?.telemetry?.stateFeed ? "good" : "bad"}`]}`} /><div><strong>Mission state feed</strong><span>{snapshot?.telemetry?.stateFeed ? "Beschikbaar" : "Niet bereikbaar"}</span></div></div>
-            <div className={styles.healthRow}><i className={`${styles.dot} ${styles[`dot_${snapshot?.telemetry?.compute ? "good" : "warn"}`]}`} /><div><strong>Compute-telemetrie</strong><span>{snapshot?.telemetry?.compute ? "Beschikbaar" : "Nog niet in statefeed"}</span></div></div>
-            <div className={styles.healthRow}><i className={`${styles.dot} ${styles.dot_good}`} /><div><strong>Browser execution boundary</strong><span>Trading-activatie hard geblokkeerd</span></div></div>
+            <div><span>Statefeed</span><strong>{snapshot?.telemetry?.stateFeed ? "Online" : "Niet bevestigd"}</strong></div>
+            <div><span>Scheduler telemetry</span><strong>{snapshot?.telemetry?.scheduler ? "Online" : "Niet bevestigd"}</strong></div>
+            <div><span>Provider cooldown</span><strong>{snapshot?.telemetry?.exactProviderCooldown ? "Exact" : "Niet bevestigd"}</strong></div>
+            <div><span>Research gateway</span><strong>{snapshot?.connections?.research?.state || "—"}</strong></div>
+            <div><span>Production gateway</span><strong>{snapshot?.connections?.production?.state || "—"}</strong></div>
+            <div><span>Builder gateway</span><strong>{snapshot?.connections?.builder?.state || "—"}</strong></div>
           </div>
         </div>
       </section>
 
-      <section className={styles.columns}>
-        <div className={styles.card}>
-          <div className={styles.cardHead}><span>Nu & hierna</span><h2>Mission context</h2></div>
-          <dl className={styles.definitionList}>
-            <div><dt>Doel</dt><dd>{compact(snapshot?.mission?.objective, 260)}</dd></div>
-            <div><dt>Bezig</dt><dd>{compact(snapshot?.mission?.inProgress, 260)}</dd></div>
-            <div><dt>Hierna</dt><dd>{compact(snapshot?.mission?.next, 260)}</dd></div>
-            <div><dt>Blockers</dt><dd>{compact(snapshot?.mission?.blockers, 260)}</dd></div>
-            <div><dt>Mens nodig</dt><dd>{compact(snapshot?.mission?.needsHuman, 260)}</dd></div>
-          </dl>
-        </div>
-        <div className={styles.card}>
-          <div className={styles.cardHead}><span>Automatische research</span><h2>Scheduler</h2></div>
-          <dl className={styles.definitionList}>
-            <div><dt>Job</dt><dd>{snapshot?.scheduler?.name || "Research Review Router niet gevonden"}</dd></div>
-            <div><dt>Status</dt><dd>{snapshot?.scheduler?.active ? "Actief" : "Niet actief"}</dd></div>
-            <div><dt>Laatste run</dt><dd>{formatDate(snapshot?.scheduler?.lastRun, true)}</dd></div>
-            <div><dt>Laatste status</dt><dd>{text(snapshot?.scheduler?.lastStatus)}</dd></div>
-            <div><dt>Volgende tick</dt><dd>{formatDate(snapshot?.scheduler?.nextRun, true)}</dd></div>
-          </dl>
+      <section className={styles.activity}>
+        <header className={styles.panelHead}><div><span>Activity</span><h2>Recente runtime-events</h2></div></header>
+        <div className={styles.timeline}>
+          {events.length ? events.map((item, index) => (
+            <article key={index}>
+              <i />
+              <div><strong>{eventTitle(item)}</strong><p>{eventBody(item)}</p></div>
+              <time>{formatDate(item.timestamp || item.ts)}</time>
+            </article>
+          )) : <div className={styles.empty}>Geen recente events in de statefeed.</div>}
         </div>
       </section>
 
-      <section className={styles.section}>
-        <div className={styles.sectionHead}><div><span>Runtime-audit</span><h2>Operationele gebeurtenissen</h2></div><small>{events.length ? `${events.length} uit statefeed` : "telemetrie ontbreekt"}</small></div>
-        {events.length ? <div className={styles.activityList}>{events.slice(0, 12).map((item, index) => <article key={`${eventTitle(item)}-${index}`}><div><span>{text(item.type || item.event, "EVENT")}</span><strong>{eventTitle(item)}</strong><p>{compact(item.message || item.reason || item.result, 240)}</p></div><time>{formatDate(item.timestamp || item.ts || item.created_at, true)}</time></article>)}</div> : <div className={styles.telemetryGap}><strong>Deterministische runtime-events nog niet gepubliceerd</strong><p>Voor een volledige audit-timeline moet de VPS-statefeed run manifests, reservation/void-events en mission progression als read-only events publiceren. Het OS gebruikt experimenten niet als vervanging voor deze operationele waarheid.</p></div>}
-      </section>
-
-      <section className={styles.section}>
-        <div className={styles.sectionHead}><div><span>Onderzoeksresultaten</span><h2>Recente experimenten</h2></div><small>inhoudelijke state</small></div>
-        <div className={styles.activityList}>{recentExperiments.length ? recentExperiments.map((item, index) => <article key={`${text(item.experiment_id)}-${index}`}><div><span>{text(item.verdict, "RESULT")}</span><strong>{compact(item.hypothesis || item.experiment_id, 140)}</strong><p>{compact(item.result, 240)}</p></div><time>{formatDate(item.timestamp, true)}</time></article>) : <div className={styles.notice}>Nog geen recente experimenten in de huidige snapshot.</div>}</div>
-      </section>
-
-      <section className={styles.section}>
-        <div className={styles.sectionHead}><div><span>Backlog</span><h2>Volgende veilige taken</h2></div><small>{backlogEntries.length} zichtbaar</small></div>
-        <div className={styles.backlog}>{backlogEntries.length ? backlogEntries.map((item, index) => <article key={`${text(item.task_id)}-${index}`}><code>{text(item.task_id)}</code><div><strong>{compact(item.title || item.rationale || item.task_id, 150)}</strong><p>{compact(item.rationale, 210)}</p></div><span>{text(item.status, text(item.priority, "—"))}</span></article>) : <div className={styles.notice}>Geen backlog-items in de huidige snapshot.</div>}</div>
-      </section>
-
-      <section className={styles.safety}>
-        <div><span>Veiligheidsgrens</span><h2>Observeren mag. Forceren niet.</h2><p>Geen “Retry now”, mission-skip, reservation-delete of browsergestuurde live execution. Handmatige Hermes-runs worden eerst door de centrale runtimepolicy gecontroleerd.</p></div>
-        <div className={styles.safetyGrid}><span>✓ Eén runtimewaarheid</span><span>✓ Geen legacy schedulerfallback</span><span>✓ Handmatige modelcalls gepolicy-gated</span><span>✓ Browser execution hard locked</span></div>
-      </section>
-
-      <details className={styles.details}><summary>Technische OS-snapshot</summary><pre>{JSON.stringify({ ...snapshot, lastBrowserRefresh: lastRefresh?.toISOString() }, null, 2)}</pre></details>
+      <details className={styles.technical}>
+        <summary>Technische state en evidence</summary>
+        <pre>{JSON.stringify({ mission: snapshot?.mission, lastReview: snapshot?.lastReview, fixtureReview: snapshot?.fixtureReview, safety: snapshot?.safety }, null, 2)}</pre>
+      </details>
     </HermesShell>
   );
 }
