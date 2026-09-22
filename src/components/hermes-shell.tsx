@@ -114,6 +114,7 @@ export function HermesShell({
                 <span>{status}</span>
               </div>
             ) : null}
+            <button type="button">Praat met Hermes</button>
             {actions}
           </div>
         </header>
