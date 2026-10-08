@@ -30,3 +30,13 @@ describe("shadow boundary", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 });
+
+// Explicit deployment check: uses the managed server connection, never browser credentials.
+it.skipIf(process.env.G11_VERIFY_REMOTE !== "true")("production server connection returns real G11 evidence", async () => {
+  const result = await fetchShadowSnapshot();
+  expect(result.read_only).toBe(true);
+  expect(result.live_orders_enabled).toBe(false);
+  expect(result.latest.fixture).toBe(false);
+  expect(result.safety.journal_verified).toBe(true);
+  expect(result.history.length).toBeGreaterThan(0);
+}, 15000);
