@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HermesShell, type HermesTone } from "./hermes-shell";
+import { ownerActionKnown } from "@/lib/os/presentation";
+import { ShadowOverview } from "./shadow-overview";
 import styles from "./simple-hermes.module.css";
 
 type Page = "overzicht" | "trading" | "instellingen";
@@ -177,21 +179,26 @@ function runtimeMessage(snapshot: Snapshot | null) {
 }
 
 export function SimpleHermes({ page }: { page: Page }) {
+  const requestSequence = useRef(0);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const refresh = useCallback(async () => {
+    const sequence = ++requestSequence.current;
     setLoading(true);
     try {
       const response = await fetch("/api/os/snapshot", { cache: "no-store" });
       if (!response.ok) throw new Error("HTTP " + response.status);
-      setSnapshot((await response.json()) as Snapshot);
+      const next = (await response.json()) as Snapshot;
+      if (sequence !== requestSequence.current) return;
+      setSnapshot(next);
       setLastRefresh(new Date());
     } catch {
+      if (sequence !== requestSequence.current) return;
       setSnapshot({ runtime: { state: "OFFLINE", reason: "De centrale OS-state kon niet worden geladen." } });
     } finally {
-      setLoading(false);
+      if (sequence === requestSequence.current) setLoading(false);
     }
   }, []);
 
@@ -203,6 +210,7 @@ export function SimpleHermes({ page }: { page: Page }) {
     const timer = window.setInterval(tick, 30_000);
     document.addEventListener("visibilitychange", tick);
     return () => {
+      requestSequence.current++;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", tick);
     };
@@ -211,6 +219,7 @@ export function SimpleHermes({ page }: { page: Page }) {
   const source = record(snapshot?.sourceSnapshot);
   const events = (snapshot?.events || []).slice(0, 6);
   const decisions = rows(source.decisions).slice(0, 5);
+  const actionKnown = ownerActionKnown(snapshot);
   const needsYou = !clearHumanGate(snapshot?.mission?.needsHuman);
   const tone = stateTone(snapshot?.runtime?.state);
   const status = stateLabel(snapshot?.runtime?.state);
@@ -235,10 +244,13 @@ export function SimpleHermes({ page }: { page: Page }) {
   function Overview() {
     return (
       <>
+        <header className={styles.pageHeader}><span className={styles.eyebrow}>Jouw Hermes</span><h1>Wat gebeurt er vandaag?</h1><p>Volg de marktobservaties, bekijk wat Hermes onderzoekt en zie of jij iets moet doen.</p></header>
+        {actionKnown && needsYou && <section className={styles.priorityAttention}><h2>Hermes heeft jouw hulp nodig</h2><p>{short(snapshot?.mission?.needsHuman, 300)}</p><Link href="/beslissingen">Bekijk jouw actie →</Link></section>}
+        <ShadowOverview />
         <section className={styles.missionHero}>
           <div className={styles.missionTop}>
             <div>
-              <span className={styles.eyebrow}>Mission control</span>
+              <span className={styles.eyebrow}>Ontwikkeling van Hermes</span>
               <div className={styles.stateLine}>
                 <i className={styles["tone_" + tone]} />
                 <strong>{status}</strong>
@@ -250,8 +262,8 @@ export function SimpleHermes({ page }: { page: Page }) {
           </div>
 
           <div className={styles.missionCopy}>
-            <div className={styles.missionId}>{missionTitle(snapshot)}</div>
-            <h1>{short(snapshot?.mission?.objective, 150)}</h1>
+            <h2>{status}</h2>
+            <details><summary>Wat onderzoekt Hermes precies?</summary><p>{short(snapshot?.mission?.objective, 1000)}</p><small>{missionTitle(snapshot)}</small></details>
             <p>{runtimeMessage(snapshot)}</p>
           </div>
 
@@ -261,16 +273,16 @@ export function SimpleHermes({ page }: { page: Page }) {
           </div>
 
           <div className={styles.heroActions}>
-            <Link href="/onderzoek" className={styles.primaryButton}>Open research</Link>
-            <button className={styles.secondaryButton}>Praat met Hermes</button>
+            <Link href="/onderzoek" className={styles.primaryButton}>Bekijk het onderzoek →</Link>
+            <button className={styles.secondaryButton} onClick={() => window.dispatchEvent(new Event("hermes:open-chat"))}>Praat met Hermes</button>
           </div>
         </section>
 
-        <section className={styles.priorityGrid}>
+        <details className={styles.rawState}><summary>Jouw acties en operationele details</summary><section className={styles.priorityGrid}>
           <article className={needsYou ? styles.priorityAttention : styles.priorityGood}>
             <div className={styles.cardLabel}>Jouw actie</div>
-            <strong>{needsYou ? "Beslissing nodig" : "Geen actie nodig"}</strong>
-            <p>{needsYou ? short(snapshot?.mission?.needsHuman, 160) : "Hermes kan binnen de ingestelde grenzen zelfstandig verder."}</p>
+            <strong>{!actionKnown ? "Nog niet bevestigd" : needsYou ? "Beslissing nodig" : "Geen actie nodig"}</strong>
+            <p>{!actionKnown ? "De actuele actie-status is niet beschikbaar." : needsYou ? short(snapshot?.mission?.needsHuman, 160) : "Hermes kan binnen de ingestelde grenzen zelfstandig verder."}</p>
             {needsYou ? <Link href="/beslissingen">Open beslissing →</Link> : null}
           </article>
 
@@ -300,9 +312,9 @@ export function SimpleHermes({ page }: { page: Page }) {
               <Link href="/onderzoek">Open volledig →</Link>
             </header>
             <dl className={styles.statusRows}>
-              <div><dt>Current</dt><dd>{missionTitle(snapshot)}</dd></div>
-              <div><dt>In progress</dt><dd>{short(snapshot?.mission?.inProgress, 220)}</dd></div>
-              <div><dt>Blockers</dt><dd>{short(snapshot?.mission?.blockers, 220)}</dd></div>
+              <div><dt>Huidig werk</dt><dd>{missionTitle(snapshot)}</dd></div>
+              <div><dt>In uitvoering</dt><dd>{short(snapshot?.mission?.inProgress, 220)}</dd></div>
+              <div><dt>Blokkades</dt><dd>{short(snapshot?.mission?.blockers, 220)}</dd></div>
               <div><dt>Laatste werk</dt><dd>{short(snapshot?.mission?.lastCompletedWork, 220)}</dd></div>
             </dl>
           </div>
@@ -314,13 +326,14 @@ export function SimpleHermes({ page }: { page: Page }) {
             </header>
             <div className={styles.healthRows}>
               <div><span>Statefeed</span><b>{snapshot?.telemetry?.stateFeed ? "Online" : "Niet bevestigd"}</b></div>
-              <div><span>Scheduler</span><b>{snapshot?.scheduler?.active ? "Actief" : "Niet actief"}</b></div>
-              <div><span>Open reservations</span><b>{formatNumber(compute?.openReservations)}</b></div>
-              <div><span>Environment</span><b>{snapshot?.deployment?.environment || "—"}</b></div>
+              <div><span>Scheduler</span><b>{snapshot?.scheduler?.active === true ? "Actief" : snapshot?.scheduler?.active === false ? "Niet actief" : "Onbekend"}</b></div>
+              <div><span>Gereserveerde runs</span><b>{formatNumber(compute?.openReservations)}</b></div>
+              <div><span>Omgeving</span><b>{snapshot?.deployment?.environment || "—"}</b></div>
             </div>
           </div>
         </section>
 
+        </details>
         <section className={styles.activitySection}>
           <header className={styles.panelHead}>
             <div><span>Timeline</span><h2>Recente activiteit</h2></div>
@@ -396,55 +409,55 @@ export function SimpleHermes({ page }: { page: Page }) {
 
   function Settings() {
     const profiles = [
-      { label: "Production", item: snapshot?.connections?.production },
-      { label: "Research", item: snapshot?.connections?.research },
-      { label: "Builder", item: snapshot?.connections?.builder },
+      { label: "Stabiele omgeving", item: snapshot?.connections?.production },
+      { label: "Onderzoeksomgeving", item: snapshot?.connections?.research },
+      { label: "Ontwikkelomgeving", item: snapshot?.connections?.builder },
     ];
 
     return (
       <>
         <section className={styles.pageHeader}>
           <span className={styles.eyebrow}>Instellingen</span>
-          <h1>Verbindingen, automatisering en release.</h1>
-          <p>Dagelijkse operatie blijft op Overzicht en Research. Hier staan alleen systeemconfiguratie en geavanceerde tools.</p>
+          <h1>Instellingen en hulpmiddelen</h1>
+          <p>Controleer verbindingen en automatische taken. Voor vragen over de werking kies je Systeemstatus; voor onderzoek naar verbeteringen kies je Hermes verbeteren.</p>
         </section>
 
         <section className={styles.settingsGrid}>
           <div className={styles.panel}>
             <header className={styles.panelHead}>
-              <div><span>Connections</span><h2>Hermes-profielen</h2></div>
+              <div><span>Verbindingen</span><h2>Hermes-profielen</h2></div>
               <button onClick={() => void refresh()} disabled={loading}>{loading ? "Controleren…" : "Ververs"}</button>
             </header>
             <div className={styles.connectionRows}>
               {profiles.map(({ label, item }) => (
                 <article key={label}>
                   <div><strong>{label}</strong><span>{connectionLabel(item?.state)}</span></div>
-                  <b>{item?.configured ? "Configured" : "Not configured"}</b>
+                  <b>{item?.configured === true ? "Ingesteld" : item?.configured === false ? "Niet ingesteld" : "Onbekend"}</b>
                 </article>
               ))}
             </div>
           </div>
 
           <div className={styles.panel}>
-            <header className={styles.panelHead}><div><span>Automation</span><h2>Research Review Router</h2></div></header>
+            <header className={styles.panelHead}><div><span>Automatisering</span><h2>Automatisch onderzoek</h2></div></header>
             <dl className={styles.statusRows}>
-              <div><dt>Status</dt><dd>{snapshot?.scheduler?.active ? "Actief" : "Niet actief"}</dd></div>
+              <div><dt>Status</dt><dd>{snapshot?.scheduler?.active === true ? "Actief" : snapshot?.scheduler?.active === false ? "Niet actief" : "Onbekend"}</dd></div>
               <div><dt>Volgende tick</dt><dd>{formatDate(snapshot?.scheduler?.nextRun, true)}</dd></div>
               <div><dt>Laatste status</dt><dd>{short(snapshot?.scheduler?.lastStatus, 150)}</dd></div>
             </dl>
           </div>
 
           <Link href="/instellingen/systeem" className={styles.toolCard}>
-            <span>System health</span>
-            <strong>Diagnostiek</strong>
+            <span>Systeemstatus</span>
+            <strong>Controleer de werking</strong>
             <p>Gateways, scheduler, deployment, security en operationele checks.</p>
             <b>Open →</b>
           </Link>
 
           <Link href="/instellingen/geavanceerd" className={styles.toolCard}>
             <span>Lab</span>
-            <strong>Brain Studio</strong>
-            <p>Capabilities, improvement research en geavanceerde Hermes-interactie.</p>
+            <strong>Hermes verbeteren</strong>
+            <p>Onderzoek vaardigheden, bespreek zwakke plekken en start een verbeteronderzoek.</p>
             <b>Open →</b>
           </Link>
         </section>
@@ -465,7 +478,7 @@ export function SimpleHermes({ page }: { page: Page }) {
       statusTone={tone}
       actions={<button onClick={() => void refresh()} disabled={loading}>{loading ? "Laden…" : "Ververs"}</button>}
     >
-      {page === "overzicht" ? <Overview /> : page === "trading" ? <Trading /> : <Settings />}
+      {page === "overzicht" ? Overview() : page === "trading" ? Trading() : Settings()}
     </HermesShell>
   );
 }

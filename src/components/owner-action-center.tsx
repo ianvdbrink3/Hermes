@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useDialogFocus } from "./use-dialog-focus";
 import styles from "./owner-action-center.module.css";
 
 type OsSnapshotResponse = {
@@ -99,6 +100,7 @@ function validEmail(value: string) {
 
 export function OwnerActionCenter() {
   const pathname = usePathname();
+  const dialogRef = useRef<HTMLElement | null>(null);
   const [open, setOpen] = useState(false);
   const [gate, setGate] = useState("");
   const [blockers, setBlockers] = useState("");
@@ -203,6 +205,8 @@ export function OwnerActionCenter() {
     }
   }
 
+  useDialogFocus(open && needsAction && pathname !== "/login", dialogRef, () => setOpen(false));
+
   if (pathname === "/login" || !needsAction) return null;
 
   return <>
@@ -211,7 +215,7 @@ export function OwnerActionCenter() {
     </button>
 
     {open && <div className={styles.backdrop} onMouseDown={() => setOpen(false)}>
-      <aside className={styles.panel} onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="owner-action-title">
+      <aside ref={dialogRef} tabIndex={-1} className={styles.panel} onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="owner-action-title">
         <header className={styles.header}>
           <div><span>Jouw actie</span><h2 id="owner-action-title">{explanation.title}</h2></div>
           <button onClick={() => setOpen(false)} aria-label="Sluiten">×</button>

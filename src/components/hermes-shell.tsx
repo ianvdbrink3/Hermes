@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import styles from "./hermes-shell.module.css";
 
@@ -7,22 +10,22 @@ export type HermesTone = "good" | "warn" | "bad" | "muted";
 
 const nav: Array<{ section: HermesSection; href: string; label: string; icon: string }> = [
   { section: "overzicht", href: "/", label: "Overzicht", icon: "◫" },
-  { section: "onderzoek", href: "/onderzoek", label: "Research", icon: "⌁" },
-  { section: "beslissingen", href: "/beslissingen", label: "Beslissingen", icon: "◇" },
+  { section: "onderzoek", href: "/onderzoek", label: "Onderzoek", icon: "⌁" },
+  { section: "beslissingen", href: "/beslissingen", label: "Jouw acties", icon: "◇" },
   { section: "trading", href: "/trading", label: "Trading", icon: "↗" },
 ];
 
 const secondaryNav = [
-  { href: "/instellingen/systeem", label: "System", icon: "◎" },
-  { href: "/instellingen/geavanceerd", label: "Brain Studio", icon: "✦" },
+  { href: "/instellingen/systeem", label: "Systeemstatus", icon: "◎" },
+  { href: "/instellingen/geavanceerd", label: "Hermes verbeteren", icon: "✦" },
   { href: "/instellingen", label: "Instellingen", icon: "⚙" },
 ];
 
 function toneLabel(tone: HermesTone) {
-  if (tone === "good") return "Healthy";
-  if (tone === "warn") return "Attention";
-  if (tone === "bad") return "Blocked";
-  return "Unknown";
+  if (tone === "good") return "Actueel";
+  if (tone === "warn") return "Aandacht";
+  if (tone === "bad") return "Controle nodig";
+  return "Onbekend";
 }
 
 export function HermesShell({
@@ -40,8 +43,11 @@ export function HermesShell({
   children: ReactNode;
   wide?: boolean;
 }) {
+  const pathname = usePathname();
+  const currentLabel = [...nav, ...secondaryNav].find(item => item.href === pathname)?.label || "Hermes";
   return (
     <div className={styles.shell}>
+      <a className={styles.skip} href="#hermes-content">Ga naar inhoud</a>
       <aside className={styles.sidebar}>
         <Link href="/" className={styles.brand}>
           <b>H</b>
@@ -51,12 +57,14 @@ export function HermesShell({
           </span>
         </Link>
 
-        <div className={styles.navLabel}>Workspace</div>
+        <div className={styles.navLabel}>Dagelijks</div>
         <nav className={styles.nav} aria-label="Hoofdnavigatie">
           {nav.map((item) => (
             <Link
               key={item.section}
               href={item.href}
+              aria-current={active === item.section ? "page" : undefined}
+              title={item.label}
               className={active === item.section ? styles.active : ""}
             >
               <span className={styles.navIcon}>{item.icon}</span>
@@ -67,10 +75,10 @@ export function HermesShell({
 
         <div className={styles.sidebarSpacer} />
 
-        <div className={styles.navLabel}>System</div>
+        <div className={styles.navLabel}>Beheer</div>
         <nav className={styles.nav + " " + styles.secondaryNav} aria-label="Systeemnavigatie">
           {secondaryNav.map((item) => (
-            <Link key={item.href} href={item.href}>
+            <Link key={item.href} href={item.href} title={item.label} aria-current={pathname === item.href ? "page" : undefined} className={pathname === item.href ? styles.active : ""}>
               <span className={styles.navIcon}>{item.icon}</span>
               <span>{item.label}</span>
             </Link>
@@ -95,15 +103,7 @@ export function HermesShell({
             <span>Hermes</span>
             <b>/</b>
             <strong>
-              {active === "overzicht"
-                ? "Overzicht"
-                : active === "onderzoek"
-                  ? "Research"
-                  : active === "beslissingen"
-                    ? "Beslissingen"
-                    : active === "trading"
-                      ? "Trading"
-                      : "Instellingen"}
+              {currentLabel}
             </strong>
           </div>
 
@@ -114,13 +114,16 @@ export function HermesShell({
                 <span>{status}</span>
               </div>
             ) : null}
-            <button type="button">Praat met Hermes</button>
+            <button type="button" onClick={() => window.dispatchEvent(new Event("hermes:open-chat"))}>Praat met Hermes</button>
             {actions}
           </div>
         </header>
 
-        <main className={styles.main + (wide ? " " + styles.wide : "")}>{children}</main>
+        <main id="hermes-content" tabIndex={-1} className={styles.main + (wide ? " " + styles.wide : "")}>{children}</main>
       </section>
+      <nav className={styles.mobileNav} aria-label="Mobiele hoofdnavigatie">
+        {[...nav, { section: "instellingen", href: "/instellingen", label: "Instellingen", icon: "⚙" }].map(item => <Link key={item.href} href={item.href} aria-current={active === item.section ? "page" : undefined}><span aria-hidden="true">{item.icon}</span><span>{item.label}</span></Link>)}
+      </nav>
     </div>
   );
 }

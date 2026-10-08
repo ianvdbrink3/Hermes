@@ -1,12 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HermesShell, type HermesTone } from "@/components/hermes-shell";
+import { ownerActionKnown } from "@/lib/os/presentation";
+import Link from "next/link";
 import styles from "./beslissingen.module.css";
 
 type RecordLike = Record<string, unknown>;
 
 type Snapshot = {
+  telemetry?: { stateFeed?: boolean };
   runtime?: { state?: string };
   mission?: {
     needsHuman?: unknown;
@@ -52,19 +55,24 @@ function tone(state?: string): HermesTone {
 }
 
 export default function BeslissingenPage() {
+  const requestSequence = useRef(0);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    const sequence = ++requestSequence.current;
     setLoading(true);
     try {
       const response = await fetch("/api/os/snapshot", { cache: "no-store" });
       if (!response.ok) throw new Error("snapshot");
-      setSnapshot((await response.json()) as Snapshot);
+      const next = await response.json() as Snapshot;
+      if (sequence !== requestSequence.current) return;
+      setSnapshot(next);
     } catch {
+      if (sequence !== requestSequence.current) return;
       setSnapshot({ runtime: { state: "OFFLINE" } });
     } finally {
-      setLoading(false);
+      if (sequence === requestSequence.current) setLoading(false);
     }
   }, []);
 
@@ -73,11 +81,12 @@ export default function BeslissingenPage() {
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void refresh();
     }, 30_000);
-    return () => window.clearInterval(timer);
+    return () => { requestSequence.current++; window.clearInterval(timer); };
   }, [refresh]);
 
   const source = record(snapshot?.sourceSnapshot);
   const history = useMemo(() => rows(source.decisions).slice(0, 12), [source]);
+  const actionKnown = ownerActionKnown(snapshot);
   const needsHuman = !clearHumanGate(snapshot?.mission?.needsHuman);
   const state = snapshot?.runtime?.state;
 
@@ -89,32 +98,33 @@ export default function BeslissingenPage() {
       actions={<button onClick={() => void refresh()} disabled={loading}>{loading ? "Laden…" : "Ververs"}</button>}
     >
       <section className={styles.header}>
-        <span>Decision control</span>
-        <h1>Alle menselijke grenzen op één plek.</h1>
-        <p>Hermes mag zelfstandig onderzoeken, maar expliciete menselijke beslissingen blijven zichtbaar en gescheiden van technische runtime-events.</p>
+        <span>Jouw acties</span>
+        <h1>Heeft Hermes jouw hulp nodig?</h1>
+        <p>Hier zie je of een onderzoeksstap op jou wacht, waarom dat zo is en wat de context is. CIO-beleggingsbesluiten staan bij Trading.</p>
       </section>
 
       <section className={styles.focusGrid}>
         <article className={needsHuman ? styles.open : styles.clear}>
           <span>Open beslissing</span>
-          <strong>{needsHuman ? "Actie nodig" : "Geen open menselijke gate"}</strong>
-          <p>{needsHuman ? text(snapshot?.mission?.needsHuman) : "Hermes rapporteert momenteel geen menselijke blokkade."}</p>
+          <strong>{!actionKnown ? "Actiestatus onbekend" : needsHuman ? "Actie nodig" : "Geen actie nodig"}</strong>
+          <p>{!actionKnown ? "De status kon nog niet worden bevestigd. Vernieuw of bekijk de systeemstatus." : needsHuman ? text(snapshot?.mission?.needsHuman) : "Hermes rapporteert momenteel geen menselijke blokkade."}</p>
         </article>
         <article>
           <span>Waarom</span>
-          <strong>{needsHuman ? "Deze stap kan niet autonoom verder" : "Geen blokkade"}</strong>
+          <strong>{!actionKnown ? "Gegevens ontbreken" : needsHuman ? "Deze stap wacht op jou" : "Geen menselijke blokkade gemeld"}</strong>
           <p>{text(snapshot?.mission?.blockers)}</p>
         </article>
       </section>
 
-      <section className={styles.panel}>
-        <header><div><span>Context</span><h2>Huidige mission</h2></div></header>
+      <p><Link href="/onderzoek">Bekijk de onderzoekscontext →</Link> · <Link href="/instellingen/systeem">Controleer de systeemstatus →</Link></p>
+      <details className={styles.panel}><summary>Onderzoekscontext bekijken</summary>
+        <header><div><span>Context</span><h2>Huidige opdracht</h2></div></header>
         <dl>
-          <div><dt>Objective</dt><dd>{text(snapshot?.mission?.objective)}</dd></div>
-          <div><dt>Next</dt><dd>{text(snapshot?.mission?.next)}</dd></div>
+          <div><dt>Doel</dt><dd>{text(snapshot?.mission?.objective)}</dd></div>
+          <div><dt>Hierna</dt><dd>{text(snapshot?.mission?.next)}</dd></div>
           <div><dt>Laatste werk</dt><dd>{text(snapshot?.mission?.lastCompletedWork)}</dd></div>
         </dl>
-      </section>
+      </details>
 
       <section className={styles.history}>
         <header><div><span>Historie</span><h2>Vastgelegde beslissingen</h2></div><small>{history.length} zichtbaar</small></header>

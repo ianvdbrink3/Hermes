@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useDialogFocus } from "./use-dialog-focus";
 import styles from "./persistent-hermes-chat.module.css";
 
 const STORAGE_KEY = "hermes-investment-os:owner-chat:v1";
@@ -106,6 +107,8 @@ export function PersistentHermesChatV5() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [now, setNow] = useState(0);
+  const dialogRef = useRef(null);
+  useDialogFocus(open, dialogRef, () => setOpen(false));
   const threadRef = useRef(null);
   const launchingRef = useRef(new Set());
 
@@ -135,8 +138,10 @@ export function PersistentHermesChatV5() {
       event.stopImmediatePropagation();
       setOpen(true);
     }
+    const openChat = () => setOpen(true);
+    window.addEventListener("hermes:open-chat", openChat);
     window.addEventListener("click", intercept, true);
-    return () => window.removeEventListener("click", intercept, true);
+    return () => { window.removeEventListener("click", intercept, true); window.removeEventListener("hermes:open-chat", openChat); };
   }, []);
 
   const activeMission = useMemo(
@@ -476,7 +481,7 @@ export function PersistentHermesChatV5() {
 
     {open && (
       <div className={styles.backdrop} onMouseDown={() => setOpen(false)}>
-        <aside className={styles.drawer} onMouseDown={(event) => event.stopPropagation()} aria-label="Praat met Hermes">
+        <aside ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" className={styles.drawer} onMouseDown={(event) => event.stopPropagation()} aria-label="Praat met Hermes">
           <header className={styles.header}>
             <div>
               <span>Onderzoeksomgeving</span>
@@ -519,10 +524,10 @@ export function PersistentHermesChatV5() {
                   {blocked && <div className={styles.failed}>{missionStatus === "blocked_human" ? "Jouw actie nodig" : "Geblokkeerd door safety-boundary"}</div>}
 
                   {failures.length > 0 && (
-                    <details style={{marginTop:10,padding:10,border:"1px solid rgba(255,255,255,.08)",borderRadius:8,color:"#87949a"}}>
-                      <summary style={{cursor:"pointer",fontSize:9,fontWeight:750}}>Technische herstelgeschiedenis · {failures.length} worker-stop{failures.length === 1 ? "" : "s"}</summary>
+                    <details style={{marginTop:10,padding:10,border:"1px solid var(--ui-line)",borderRadius:8,color:"var(--ui-muted)"}}>
+                      <summary style={{cursor:"pointer",fontSize:13,fontWeight:750}}>Technische herstelgeschiedenis · {failures.length} worker-stop{failures.length === 1 ? "" : "s"}</summary>
                       {failures.map((failure, index) => (
-                        <div key={`${failure.runId}-${index}`} style={{marginTop:8,fontSize:9,lineHeight:1.5}}>
+                        <div key={`${failure.runId}-${index}`} style={{marginTop:8,fontSize:13,lineHeight:1.5}}>
                           <strong>Poging {failure.attempt}</strong> · {failure.status}<br />
                           <span>{failure.reason}</span><br />
                           <span style={{fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace"}}>Run: {failure.runId}</span>
@@ -532,11 +537,11 @@ export function PersistentHermesChatV5() {
                   )}
 
                   {paused && (
-                    <div style={{marginTop:12,padding:12,border:"1px solid rgba(255,188,79,.25)",borderRadius:9,background:"rgba(255,188,79,.035)"}}>
-                      <strong style={{display:"block",fontSize:9,textTransform:"uppercase",letterSpacing:".08em",color:"#ffc46b"}}>Missie veilig gepauzeerd</strong>
+                    <div style={{marginTop:12,padding:12,border:"1px solid var(--ui-warning)",borderRadius:9,background:"rgba(255,188,79,.035)"}}>
+                      <strong style={{display:"block",fontSize:13,textTransform:"uppercase",letterSpacing:".08em",color:"var(--ui-warning)"}}>Missie veilig gepauzeerd</strong>
                       <p style={{marginTop:7}}>State en checkpoints blijven bewaard. Automatisch herstel stopte alleen om een oneindige technische retry-loop te voorkomen.</p>
                       {message.failureReason && <p style={{marginTop:7}}>Laatste reden: {message.failureReason}</p>}
-                      <button type="button" onClick={() => resumeRecovery(message)} disabled={busy} style={{marginTop:9,border:0,background:"#c9ff35",color:"#080b0d",borderRadius:7,padding:"7px 9px",fontSize:9,fontWeight:850,cursor:"pointer"}}>Herstel opnieuw vanuit checkpoint</button>
+                      <button type="button" onClick={() => resumeRecovery(message)} disabled={busy} style={{marginTop:9,border:0,background:"var(--ui-accent)",color:"var(--ui-on-accent)",borderRadius:7,padding:"7px 9px",fontSize:13,fontWeight:850,cursor:"pointer"}}>Herstel opnieuw vanuit checkpoint</button>
                     </div>
                   )}
                 </article>
@@ -547,6 +552,7 @@ export function PersistentHermesChatV5() {
 
           <form className={styles.form} onSubmit={submit}>
             <textarea
+              aria-label="Je opdracht aan Hermes"
               rows={4}
               value={input}
               onChange={(event) => setInput(event.target.value)}

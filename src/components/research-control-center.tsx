@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   activeFixture,
   buildFixtureCards,
@@ -161,21 +163,26 @@ function eventBody(item: RecordLike) {
 }
 
 export function ResearchControlCenter() {
+  const requestSequence = useRef(0);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const refresh = useCallback(async () => {
+    const sequence = ++requestSequence.current;
     setLoading(true);
     try {
       const response = await fetch("/api/os/snapshot", { cache: "no-store" });
       if (!response.ok) throw new Error("HTTP " + response.status);
-      setSnapshot((await response.json()) as Snapshot);
+      const next = (await response.json()) as Snapshot;
+      if (sequence !== requestSequence.current) return;
+      setSnapshot(next);
       setLastRefresh(new Date());
     } catch {
+      if (sequence !== requestSequence.current) return;
       setSnapshot({ runtime: { state: "OFFLINE", reason: "De geconsolideerde OS-state kon niet worden geladen." } });
     } finally {
-      setLoading(false);
+      if (sequence === requestSequence.current) setLoading(false);
     }
   }, []);
 
@@ -189,6 +196,7 @@ export function ResearchControlCenter() {
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      requestSequence.current++;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
@@ -219,50 +227,50 @@ export function ResearchControlCenter() {
     >
       <section className={styles.header}>
         <div>
-          <span className={styles.eyebrow}>Research control</span>
+          <span className={styles.eyebrow}>Onderzoek en ontwikkeling</span>
           <div className={styles.stateLine}><i className={styles["tone_" + tone]} /><strong>{status}</strong></div>
-          <h1>{currentIdentity}</h1>
-          <p>{compact(snapshot?.mission?.objective || snapshot?.runtime?.reason, 300)}</p>
+          <h1>Waar werkt Hermes aan?</h1>
+          <p>Volg het ontwikkelonderzoek en de controles waarmee Hermes zichzelf verbetert. De analyses van marktdata staan bij <Link href="/trading">Trading → Analyses</Link>.</p><details><summary>De huidige onderzoeksopdracht</summary><p>{text(snapshot?.mission?.objective || snapshot?.runtime?.reason)}</p></details>
         </div>
         <div className={styles.headerMeta}>
-          <span>Laatste refresh</span>
+          <span>Laatst bijgewerkt</span>
           <strong>{lastRefresh ? formatDate(lastRefresh.toISOString()) : "—"}</strong>
-          <small>{snapshot?.runtime?.readOnly ? "Read-only control plane" : "Runtime state"}</small>
+          <small>{snapshot?.runtime?.readOnly ? "Alleen statusweergave" : "Onderzoeksstatus"}</small>
         </div>
       </section>
 
       <section className={styles.topGrid}>
         <article className={styles.currentCard}>
-          <span>Current</span>
-          <strong>{currentIdentity}</strong>
+          <span>Huidig onderzoek</span>
+          <strong>{status}</strong>
           <p>{compact(snapshot?.mission?.inProgress || snapshot?.runtime?.reason, 230)}</p>
           {current?.status ? <b>{current.label}</b> : null}
         </article>
 
         <article>
-          <span>Next</span>
+          <span>Hierna</span>
           <strong>{next?.fixtureId || compact(snapshot?.mission?.nextFixture || snapshot?.mission?.next, 70)}</strong>
           <p>{compact(snapshot?.mission?.next, 190)}</p>
         </article>
 
         <article>
-          <span>Provider</span>
-          <strong>{snapshot?.provider?.cooldownActive ? "Cooldown" : snapshot?.provider?.state || "Onbekend"}</strong>
+          <span>Modelverbinding</span>
+          <strong>{snapshot?.provider?.cooldownActive ? "Wacht op modelcapaciteit" : snapshot?.provider?.state || "Onbekend"}</strong>
           <p>{snapshot?.provider?.retryNotBeforeUtc ? "Retry na " + formatDate(snapshot.provider.retryNotBeforeUtc) : snapshot?.provider?.model || "Geen modelstatus"}</p>
         </article>
 
         <article>
-          <span>Scheduler</span>
-          <strong>{snapshot?.scheduler?.active ? "Actief" : "Niet actief"}</strong>
+          <span>Automatische planning</span>
+          <strong>{snapshot?.scheduler?.active === true ? "Actief" : snapshot?.scheduler?.active === false ? "Niet actief" : "Onbekend"}</strong>
           <p>{snapshot?.scheduler?.nextRun ? "Volgende check " + formatDate(snapshot.scheduler.nextRun) : compact(snapshot?.scheduler?.lastStatus, 160)}</p>
         </article>
       </section>
 
-      <section className={styles.progressPanel}>
+      <details className={styles.technical}><summary>Technische testvoortgang en bewijs</summary><section className={styles.progressPanel}>
         <div className={styles.progressHead}>
           <div>
-            <span>Fixture chain</span>
-            <h2>{passed}/{cards.length} bewezen PASS</h2>
+            <span>Systeemtests</span>
+            <h2>{passed}/{cards.length} controles geslaagd</h2>
           </div>
           <div className={styles.progressRight}>
             <strong>{progress}%</strong>
@@ -295,7 +303,7 @@ export function ResearchControlCenter() {
 
       <section className={styles.columns}>
         <div className={styles.panel}>
-          <header className={styles.panelHead}><div><span>Review history</span><h2>Recente bounded reviews</h2></div></header>
+          <header className={styles.panelHead}><div><span>Beoordelingen</span><h2>Recente beoordelingen</h2></div></header>
           <div className={styles.reviewList}>
             {decided.length ? decided.map((item) => (
               <article key={item.fixtureId + item.status}>
@@ -316,7 +324,7 @@ export function ResearchControlCenter() {
         </div>
 
         <div className={styles.panel}>
-          <header className={styles.panelHead}><div><span>Compute</span><h2>Budget & accounting</h2></div></header>
+          <header className={styles.panelHead}><div><span>Compute</span><h2>Verbruik en budget</h2></div></header>
           <dl className={styles.metricRows}>
             <div><dt>Runs 24u</dt><dd>{compute?.available ? ratio(compute.runs24h, compute.maxRuns24h) : "—"}</dd></div>
             <div><dt>Prompttokens</dt><dd>{compute?.available ? ratio(compute.promptTokens24h, compute.maxPromptTokens24h) : "—"}</dd></div>
@@ -331,18 +339,18 @@ export function ResearchControlCenter() {
 
       <section className={styles.columns}>
         <div className={styles.panel}>
-          <header className={styles.panelHead}><div><span>Mission</span><h2>Wat Hermes probeert af te ronden</h2></div></header>
+          <header className={styles.panelHead}><div><span>Mission</span><h2>Onderzoeksopdracht</h2></div></header>
           <dl className={styles.definitionRows}>
-            <div><dt>Objective</dt><dd>{text(snapshot?.mission?.objective)}</dd></div>
-            <div><dt>In progress</dt><dd>{text(snapshot?.mission?.inProgress)}</dd></div>
-            <div><dt>Next</dt><dd>{text(snapshot?.mission?.next)}</dd></div>
-            <div><dt>Blockers</dt><dd>{text(snapshot?.mission?.blockers)}</dd></div>
-            <div><dt>Human gate</dt><dd>{text(snapshot?.mission?.needsHuman)}</dd></div>
+            <div><dt>Doel</dt><dd>{text(snapshot?.mission?.objective)}</dd></div>
+            <div><dt>In uitvoering</dt><dd>{text(snapshot?.mission?.inProgress)}</dd></div>
+            <div><dt>Hierna</dt><dd>{text(snapshot?.mission?.next)}</dd></div>
+            <div><dt>Blokkades</dt><dd>{text(snapshot?.mission?.blockers)}</dd></div>
+            <div><dt>Jouw actie</dt><dd>{text(snapshot?.mission?.needsHuman)}</dd></div>
           </dl>
         </div>
 
         <div className={styles.panel}>
-          <header className={styles.panelHead}><div><span>Runtime</span><h2>Control-plane health</h2></div></header>
+          <header className={styles.panelHead}><div><span>Runtime</span><h2>Verbindingen en controles</h2></div></header>
           <div className={styles.healthList}>
             <div><span>Statefeed</span><strong>{snapshot?.telemetry?.stateFeed ? "Online" : "Niet bevestigd"}</strong></div>
             <div><span>Scheduler telemetry</span><strong>{snapshot?.telemetry?.scheduler ? "Online" : "Niet bevestigd"}</strong></div>
@@ -354,8 +362,9 @@ export function ResearchControlCenter() {
         </div>
       </section>
 
+      </details>
       <section className={styles.activity}>
-        <header className={styles.panelHead}><div><span>Activity</span><h2>Recente runtime-events</h2></div></header>
+        <header className={styles.panelHead}><div><span>Activiteit</span><h2>Recente runtime-events</h2></div></header>
         <div className={styles.timeline}>
           {events.length ? events.map((item, index) => (
             <article key={index}>

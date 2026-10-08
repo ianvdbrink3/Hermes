@@ -25,3 +25,15 @@ describe("cycle health", () => {
     expect(shadowCycleHealthy(data)).toBe(false);
   });
 });
+
+
+import { shadowOverviewStatus } from "./g11-shadow-status";
+
+it("overview marks halted and stale feeds before reporting active observation", () => {
+  const now = Date.parse("2026-10-08T17:00:00Z");
+  const data = { generated_at: "2026-10-08T17:00:00Z", latest: { at: "2026-10-08T14:00:00Z" }, health: { status: "DAILY_COMPLETE", last_observation: "2026-10-08T14:00:00Z" }, daemon: { scheduler: "RUNNING", checked_at: "2026-10-08T17:00:00Z" }, safety: { reconciled: true, journal_verified: true, kill_switch: false, pending_recovery: false, incomplete_decisions: false } } as ShadowSnapshot;
+  expect(shadowOverviewStatus(data, now)).toBe("Observatie actief");
+  expect(shadowOverviewStatus({ ...data, safety: { ...data.safety, kill_switch: true } }, now)).toBe("Observatie geblokkeerd");
+  expect(shadowOverviewStatus(data, now + 180_000)).toBe("Actuele status niet bevestigd");
+  expect(shadowOverviewStatus({ ...data, safety: { ...data.safety, journal_verified: false } }, now)).toBe("Controles vragen aandacht");
+});
