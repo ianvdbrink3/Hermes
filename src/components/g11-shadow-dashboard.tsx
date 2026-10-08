@@ -70,7 +70,7 @@ export function G11ShadowDashboard() {
   const snapshotFresh = data && Date.now() - Date.parse(data.generated_at) >= 0 && Date.now() - Date.parse(data.generated_at) < 3 * 60_000;
   const cycleHealthy = shadowCycleHealthy(data);
   const schedulerHealthy = data?.daemon.scheduler === "RUNNING";
-  const healthy = cycleHealthy && schedulerHealthy && daemonFresh && snapshotFresh;
+  const healthy = !halted && cycleHealthy && schedulerHealthy && daemonFresh && snapshotFresh;
   const status = error ? "Shadow feed offline" : !data ? "Shadowgegevens laden" : halted ? "Shadow geblokkeerd" : !daemonFresh || !snapshotFresh ? "Shadow status verouderd" : !cycleHealthy || !schedulerHealthy ? "Shadow vereist controle" : "Shadow observatie actief";
   const story = decisionStory(latest.decision_action, latest.executed);
   const riskLabels: Record<string, string> = { APPROVE: "Goedgekeurd", BLOCK: "Geblokkeerd", REJECT: "Afgewezen", RESIZE: "Omvang aangepast" };
