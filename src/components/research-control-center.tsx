@@ -139,7 +139,7 @@ function stateTone(state?: RuntimeState): HermesTone {
 function stateLabel(state?: RuntimeState) {
   const labels: Partial<Record<RuntimeState, string>> = {
     READY: "Klaar",
-    RUNNING: "Review actief",
+    RUNNING: "Beoordeling actief",
     WAITING_PROVIDER: "Provider cooldown",
     WAITING_PROVIDER_UNVERIFIED: "Providerstatus onzeker",
     WAITING_BUDGET: "Compute-budget bereikt",
@@ -230,7 +230,7 @@ export function ResearchControlCenter() {
           <span className={styles.eyebrow}>Onderzoek en ontwikkeling</span>
           <div className={styles.stateLine}><i className={styles["tone_" + tone]} /><strong>{status}</strong></div>
           <h1>Waar werkt Hermes aan?</h1>
-          <p>Volg het ontwikkelonderzoek en de controles waarmee Hermes zichzelf verbetert. De analyses van marktdata staan bij <Link href="/trading">Trading → Analyses</Link>.</p><details><summary>De huidige onderzoeksopdracht</summary><p>{text(snapshot?.mission?.objective || snapshot?.runtime?.reason)}</p></details>
+          <p>Volg het ontwikkelonderzoek en de controles waarmee Hermes zichzelf verbetert. De analyses van marktdata staan bij <Link href="/trading">Trading</Link>, onder Analyses.</p><details><summary>De huidige onderzoeksopdracht</summary><p>{text(snapshot?.mission?.objective || snapshot?.runtime?.reason)}</p></details>
         </div>
         <div className={styles.headerMeta}>
           <span>Laatst bijgewerkt</span>
@@ -249,13 +249,13 @@ export function ResearchControlCenter() {
 
         <article>
           <span>Hierna</span>
-          <strong>{next?.fixtureId || compact(snapshot?.mission?.nextFixture || snapshot?.mission?.next, 70)}</strong>
+          <strong>{snapshot?.mission?.next ? "Volgende onderzoeksstap" : "Nog niet bevestigd"}</strong>
           <p>{compact(snapshot?.mission?.next, 190)}</p>
         </article>
 
         <article>
           <span>Modelverbinding</span>
-          <strong>{snapshot?.provider?.cooldownActive ? "Wacht op modelcapaciteit" : snapshot?.provider?.state || "Onbekend"}</strong>
+          <strong>{snapshot?.provider?.cooldownActive ? "Wacht op modelcapaciteit" : snapshot?.provider?.state === "AVAILABLE" ? "Beschikbaar" : snapshot?.provider?.state || "Onbekend"}</strong>
           <p>{snapshot?.provider?.retryNotBeforeUtc ? "Retry na " + formatDate(snapshot.provider.retryNotBeforeUtc) : snapshot?.provider?.model || "Geen modelstatus"}</p>
         </article>
 

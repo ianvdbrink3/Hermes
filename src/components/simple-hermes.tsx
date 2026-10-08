@@ -131,7 +131,7 @@ function stateTone(state?: string): HermesTone {
 function stateLabel(state?: string) {
   const labels: Record<string, string> = {
     READY: "Klaar",
-    RUNNING: "Research actief",
+    RUNNING: "Onderzoek actief",
     WAITING_PROVIDER: "Provider cooldown",
     WAITING_PROVIDER_UNVERIFIED: "Providerstatus onzeker",
     WAITING_BUDGET: "Compute-budget bereikt",
