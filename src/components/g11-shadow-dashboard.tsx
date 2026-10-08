@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HermesShell } from "./hermes-shell";
 import type { ShadowSnapshot } from "@/lib/os/g11-shadow";
+import { shadowCycleHealthy } from "@/lib/os/g11-shadow-status";
 import styles from "./g11-shadow-dashboard.module.css";
 
 type Row = Record<string, unknown>;
@@ -64,7 +65,7 @@ export function G11ShadowDashboard() {
   const daemonAt = Date.parse(text(data?.daemon.checked_at || data?.daemon.at || data?.daemon.updated_at, ""));
   const daemonFresh = Number.isFinite(daemonAt) && Date.now() - daemonAt >= 0 && Date.now() - daemonAt < 5 * 60_000;
   const snapshotFresh = data && Date.now() - Date.parse(data.generated_at) >= 0 && Date.now() - Date.parse(data.generated_at) < 3 * 60_000;
-  const cycleHealthy = data?.health.status === "PASS" && safety?.reconciled === true && safety?.journal_verified === true;
+  const cycleHealthy = shadowCycleHealthy(data);
   const schedulerHealthy = data?.daemon.scheduler === "RUNNING";
   const healthy = cycleHealthy && schedulerHealthy && daemonFresh && snapshotFresh;
   const status = error ? "Shadow feed offline" : !data ? "Shadowgegevens laden" : halted ? "Shadow geblokkeerd" : !daemonFresh || !snapshotFresh ? "Shadow status verouderd" : !cycleHealthy || !schedulerHealthy ? "Shadow vereist controle" : "Shadow observatie actief";
