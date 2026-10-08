@@ -5,7 +5,7 @@ type Card = { role: string; title: string; direction: string; explanation: strin
 const api = presentation as unknown as {
   explainAssessment: (role: string, thesis: unknown, score?: unknown) => Card;
   explainRecordedThesis: (value: unknown) => Card[];
-  riskExplanation: (status: unknown) => string;
+  riskExplanation: (status: unknown, action?: unknown, executed?: unknown) => string;
   runtimeExplanation: (state: unknown) => string;
   plainStatus: (state: unknown) => string;
   explainInvalidation: (conditions: unknown) => string[];
@@ -25,9 +25,32 @@ describe("begrijpelijke uitleg zonder verzonnen bewijs", () => {
   it("summarizes explicit momentum and volatility with Dutch numbers", () => {
     const card = explain("QUANT", "MSFT has a modest positive directional bias. The 20-day momentum was +7.75%, tempered by elevated annualized volatility of 38.98%.", ".35");
     expect(card.explanation).toContain("7,75%");
-    expect(card.explanation).toContain("38,98%");
+    expect(card.explanation).not.toContain("38,98%");
     expect(card.explanation).toContain("schommelingen");
-    expect(card.explanation.length).toBeLessThan(260);
+    expect(card.explanation).toContain("verlies blijft mogelijk");
+    expect(card.explanation).not.toContain("geen verwacht verlies");
+    expect(card.explanation.length).toBeLessThan(360);
+  });
+  it("names only the weak business units actually reported", () => {
+    const source = "Slightly positive direction: supporting continued cloud and AI momentum. This is partly offset by weakness in More Personal Computing, including declines in Windows OEM and Devices and XBOX content and services.";
+    const card = explain("FUNDAMENTAL", source);
+    expect(card.explanation).toContain("Windows-licenties en apparaten");
+    expect(card.explanation).toContain("Xbox-games en -diensten");
+    expect(explain("FUNDAMENTAL", "Slightly positive direction: supporting continued cloud and AI momentum. There is weakness elsewhere.").explanation).not.toContain("Xbox");
+  });
+  it("explains the actual missing central-bank evidence", () => {
+    const card = explain("MACRO", "No defensible directional inference. Federal Reserve releases provide only titles and descriptions—not their policy substance, market interpretation, interest-rate reaction.");
+    expect(card.explanation).toContain("Amerikaanse centrale bank");
+    expect(card.explanation).toContain("koppen en korte beschrijvingen");
+    expect(card.explanation).toContain("reactie van de markt ontbreken");
+  });
+  it("explains approval of waiting and keeps permission separate from execution", () => {
+    expect(api.riskExplanation("APPROVE", "HOLD", false)).toBe("Hermes besloot niets te kopen of verkopen. De risicocontrole accepteerde dat afwachtbesluit. Er is geen oefentransactie uitgevoerd.");
+    expect(api.riskExplanation("APPROVE", "BUY", false)).toContain("toestemming");
+    expect(api.riskExplanation("APPROVE", "BUY", false)).toContain("geen oefentransactie uitgevoerd");
+    expect(api.riskExplanation("APPROVE", "BUY", true)).toContain("Er is een oefentransactie uitgevoerd");
+    expect(api.riskExplanation("APPROVE", "BUY", undefined)).toContain("Uitvoering niet bevestigd");
+    expect(api.riskExplanation("APPROVE", "HOLD", true)).not.toContain("geen oefentransactie");
   });
   it("does not turn a quoted bullish narrative into a positive unknown assessment", () => {
     const card = explain("SENTIMENT", "The bullish narrative failed; results contradict previous expectations.");
@@ -55,7 +78,7 @@ describe("begrijpelijke uitleg zonder verzonnen bewijs", () => {
   });
   it("separates risk clearance from an actual purchase", () => {
     expect(typeof api.riskExplanation).toBe("function");
-    expect(api.riskExplanation("APPROVE")).toContain("geen koopadvies");
+    expect(api.riskExplanation("APPROVE")).toContain("Uitvoering niet bevestigd");
     expect(api.riskExplanation("BLOCK")).toContain("tegengehouden");
     expect(api.riskExplanation(undefined)).toContain("niet bevestigd");
   });

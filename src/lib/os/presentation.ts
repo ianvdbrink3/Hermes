@@ -51,17 +51,24 @@ export function explainAssessment(role: string, thesis: unknown, score?: unknown
     : n > 0 ? "Deze analyse ziet aanwijzingen die gunstig zijn voor het aandeel. Dat is op zichzelf geen reden om te kopen."
     : n < 0 ? "Deze analyse ziet aanwijzingen die ongunstig zijn voor het aandeel."
     : "Deze analyse geeft geen duidelijke voorkeur voor stijgen of dalen.";
+  if (missing && role === "MACRO" && /Federal Reserve/i.test(source) && /only titles and descriptions/i.test(source) && /policy substance/i.test(source) && /market interpretation|interest-rate reaction/i.test(source)) {
+    explanation = "Hermes kreeg alleen koppen en korte beschrijvingen van berichten van de Amerikaanse centrale bank. De volledige inhoud van die berichten en de reactie van de markt ontbreken. Daarom kan deze analyse niet bepalen of dit gunstig of ongunstig is voor het aandeel.";
+  }
   const affirmativeEvidence = !/\b(?:not|no|false|adverse|contradicts?|if|unless)\b|["“”]/i.test(source);
   if (!missing && n !== null && n > 0 && affirmativeEvidence && role === "FUNDAMENTAL" && /\bcloud\b/i.test(source) && /\bAI\b/.test(source) && /supporting continued cloud and AI momentum/i.test(source)) {
     explanation = "De analyse noemt cloud en AI als steun voor het aandeel.";
-    if (/weakness|declines|zwakk/i.test(source)) explanation += " Zwakkere bedrijfsonderdelen beperken dat voordeel.";
+    if (/declines in Windows OEM and Devices and XBOX content and services/i.test(source)) {
+      explanation += " Volgens deze analyse deden Windows-licenties en apparaten, en Xbox-games en -diensten het minder goed. Dat beperkt het positieve beeld.";
+    } else if (/weakness|declines|zwakk/i.test(source)) {
+      explanation += " De analyse noemt ook zwakke onderdelen, maar geeft geen namen die hier betrouwbaar zijn samen te vatten. Bekijk daarvoor de volledige analyse.";
+    }
   }
   if (!missing && n !== null && role === "QUANT") {
     const momentum = source.match(/20-day momentum (?:was|is|of)\s*([+-]?\d+(?:\.\d+)?)%/i);
     const volatility = source.match(/annualized volatility (?:of|was|is)\s*(\d+(?:\.\d+)?)%/i);
     const percent = (v: string) => new Intl.NumberFormat("nl-NL", { maximumFractionDigits: 2 }).format(Number(v)) + "%";
-    if (momentum) explanation = "De koers veranderde over 20 handelsdagen met " + percent(momentum[1]) + ".";
-    if (volatility) explanation += " De jaarlijkse koersschommelingen zijn " + percent(volatility[1]) + "; dit beschrijft beweeglijkheid, geen verwacht verlies.";
+    if (momentum) explanation = "De koers " + (Number(momentum[1]) > 0 ? "steeg" : Number(momentum[1]) < 0 ? "daalde" : "veranderde") + " in de 20 handelsdagen vóór deze analyse met " + percent(String(Math.abs(Number(momentum[1])))) + ".";
+    if (volatility) explanation += " Dit voorspelt niet wat de koers hierna doet; verlies blijft mogelijk. De cijfers over koersschommelingen staan bij Uitgebreide analyses.";
   }
   if (!missing && n !== null && n > 0 && affirmativeEvidence && role === "SENTIMENT" && /(?:near-term sentiment is helped|reinforces the positive narrative|supports a moderately positive direction)/i.test(source)) {
     explanation = "De analyse ziet een positief nieuwsbeeld rond het aandeel.";
@@ -89,9 +96,14 @@ export function explainInvalidation(value: unknown): string[] {
   });
 }
 
-export function riskExplanation(status: unknown): string {
+export function riskExplanation(status: unknown, action?: unknown, executed?: unknown): string {
+  if (status === "APPROVE") {
+    const execution = executed === true ? "Er is een oefentransactie uitgevoerd." : executed === false ? "Er is geen oefentransactie uitgevoerd." : "Uitvoering niet bevestigd: het is nog niet bekend of er een oefentransactie is uitgevoerd.";
+    const decision = action === "HOLD" ? "Hermes besloot niets te kopen of verkopen. De risicocontrole accepteerde dat afwachtbesluit."
+      : "De risicocontrole gaf toestemming voor het voorgestelde besluit.";
+    return decision + " " + execution;
+  }
   const known: Record<string, string> = {
-    APPROVE: "De risicocontrole heeft dit besluit niet tegengehouden. Dat is geen koopadvies en betekent niet dat er een transactie is uitgevoerd.",
     BLOCK: "De risicocontrole heeft de voorgestelde transactie tegengehouden. De vastgelegde redenen staan bij Uitgebreide analyses.",
     REJECT: "De risicocontrole heeft de voorgestelde transactie afgewezen. De vastgelegde redenen staan bij Uitgebreide analyses.",
     RESIZE: "De risicocontrole heeft de toegestane omvang aangepast. Kijk bij de uitvoering of er daarna werkelijk een oefentransactie is gedaan.",
