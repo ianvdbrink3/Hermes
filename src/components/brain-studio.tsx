@@ -2,11 +2,13 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { HermesShell, type HermesTone } from "./hermes-shell";
+import Link from "next/link";
+import { plainStatus, runtimeExplanation } from "@/lib/os/presentation";
 import { ViewTabs } from "./view-tabs";
 import styles from "./brain-studio-v2.module.css";
 
 type RecordLike = Record<string, unknown>;
-type Capability = { id?: string; name?: string; type?: string; description?: string; category?: string };
+type Vaardigheid = { id?: string; name?: string; type?: string; description?: string; category?: string };
 type BrainStatus = {
   production?: { state?: string; profile?: string; model?: string; message?: string };
   research?: { state?: string; profile?: string; message?: string };
@@ -30,7 +32,7 @@ const presets = [
   { label: "Ontwerp één verbetering", prompt: "Identificeer op basis van beschikbaar bewijs één structurele zwakte in je investment intelligence en ontwerp één meetbare capability improvement. Verander production niet." },
 ];
 
-const lifecycle = ["DRAFT", "RESEARCHING", "PROPOSED", "TESTING", "VALIDATED", "HUMAN APPROVED", "BUILT", "PAPER", "PRODUCTION"];
+const lifecycle = ["Idee", "Onderzoek", "Voorstel", "Testen", "Gecontroleerd", "Jouw goedkeuring", "Gebouwd", "Oefenen", "Stabiele versie"];
 
 function nowLabel() {
   return new Intl.DateTimeFormat("nl-NL", { hour: "2-digit", minute: "2-digit" }).format(new Date());
@@ -71,7 +73,7 @@ export function BrainStudio() {
   const [loadError, setLoadError] = useState("");
   const [status, setStatus] = useState<BrainStatus | null>(null);
   const [runtime, setRuntime] = useState<RuntimeSnapshot | null>(null);
-  const [capabilities, setCapabilities] = useState<Capability[]>([]);
+  const [capabilities, setCapabilities] = useState<Vaardigheid[]>([]);
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<Message[]>([
     { id: "welcome", role: "system", text: "Welkom. Bespreek een zwakke plek, laat Hermes bewijs beoordelen of onderzoek een verbetering. Dit werkt in de onderzoeksomgeving; de stabiele versie blijft beschermd.", at: nowLabel() },
@@ -153,7 +155,7 @@ export function BrainStudio() {
       const response = await fetch("/api/brain/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: clean, environment: "research", session_id: "brain-research-primary", source: "brain_studio" }),
+        body: JSON.stringify({ input: clean + "\n\nAntwoord in eenvoudig Nederlands. Begin met een korte conclusie en leg vaktermen uit. Houd de toelichting beknopt; behoud alle onzekerheden en veiligheidsgrenzen.", environment: "research", session_id: "brain-research-primary", source: "brain_studio" }),
       });
       const run = (await response.json()) as BrainRun;
       if (!response.ok || run.error) {
@@ -209,7 +211,7 @@ export function BrainStudio() {
   }
 
   const tone = runtimeTone(runtime?.runtime?.state);
-  const statusText = runtime?.runtime?.state ? `Research: ${runtime.runtime.state}` : "Researchstatus laden…";
+  const statusText = runtime?.runtime?.state ? plainStatus(runtime.runtime.state) : "Researchstatus laden…";
 
   return <HermesShell active="instellingen" status={statusText} statusTone={tone} wide actions={<button onClick={() => void load()}>Ververs</button>}>
     <section className={styles.intro}>
@@ -223,41 +225,41 @@ export function BrainStudio() {
     <ViewTabs items={["Gesprek", "Vaardigheden", "Verbeteringen"]} active={tab} onChange={setTab}>
     <section className={styles.workspace} hidden={tab !== "Gesprek"}>
       <div className={styles.panel}>
-        <div className={styles.panelHead}><div><span>Researchconsole</span><h2>Bespreek je vraag met Hermes</h2></div><small>Onderzoeksomgeving</small></div>
-        <div className={styles.thread}>{messages.map((message) => <article key={message.id} className={`${styles.message} ${styles[`message_${message.role}`]}`}><header><strong>{message.role === "user" ? "JIJ" : message.role === "hermes" ? "HERMES" : "SYSTEEM"}</strong><time>{message.at}</time></header><p>{message.text}</p></article>)}{runBusy && <article className={`${styles.message} ${styles.message_hermes}`}><header><strong>HERMES</strong><time>RUNNING</time></header><p>Researchrun actief. De runtimepolicy is al gecontroleerd.</p></article>}</div>
+        <div className={styles.panelHead}><div><span>Onderzoeksgesprek</span><h2>Bespreek je vraag met Hermes</h2></div><small>Onderzoeksomgeving</small></div>
+        <div className={styles.thread}>{messages.map((message) => <article key={message.id} className={`${styles.message} ${styles[`message_${message.role}`]}`}><header><strong>{message.role === "user" ? "JIJ" : message.role === "hermes" ? "HERMES" : "SYSTEEM"}</strong><time>{message.at}</time></header><p>{message.text}</p></article>)}{runBusy && <article className={`${styles.message} ${styles.message_hermes}`}><header><strong>HERMES</strong><time>Bezig</time></header><p>Hermes onderzoekt je vraag binnen de ingestelde grenzen.</p></article>}</div>
         <div className={styles.presets}>{presets.map((preset) => <button key={preset.label} onClick={() => setConsoleInput(preset.prompt)}>{preset.label}</button>)}</div>
-        <form className={styles.form} onSubmit={submitConsole}><textarea aria-label="Je vraag aan Hermes" rows={5} value={consoleInput} onChange={(event) => setConsoleInput(event.target.value)} placeholder="Vraag Hermes om een probleem te onderzoeken, bewijs te beoordelen of een improvement te ontwerpen…" /><div><small>Research only · provider- en budgetpolicy · geen production mutation</small><button disabled={!runtime || runBusy || !consoleInput.trim()}>{runBusy ? "BEZIG" : "Verstuur"}</button></div></form>
+        <form className={styles.form} onSubmit={submitConsole}><textarea aria-label="Je vraag aan Hermes" rows={5} value={consoleInput} onChange={(event) => setConsoleInput(event.target.value)} placeholder="Vraag Hermes om een probleem te onderzoeken of een verbetering voor te stellen…" /><div><small>Alleen onderzoek · binnen het ingestelde gebruiksbudget</small><button disabled={!runtime || runBusy || !consoleInput.trim()}>{runBusy ? "BEZIG" : "Verstuur"}</button></div></form>
       </div>
 
       <aside className={styles.panel}>
         <div className={styles.panelHead}><div><span>Actuele grenzen</span><h2>Wat is echt aangesloten?</h2></div></div>
         <div className={styles.statusGrid}>
-          <div><span>Research</span><strong>{status?.research?.state || "—"}</strong></div>
-          <div><span>Production</span><strong>{status?.production?.state || "—"}</strong></div>
+          <div><span>Onderzoek</span><strong>{plainStatus(status?.research?.state)}</strong></div>
+          <div><span>Stabiele versie</span><strong>{plainStatus(status?.production?.state)}</strong></div>
           <div><span>Model</span><strong>{status?.production?.model || runtime?.provider?.model || "—"}</strong></div>
-          <div><span>Runtime</span><strong>{runtime?.runtime?.state || "—"}</strong></div>
+          <div><span>Onderzoeksstatus</span><strong>{plainStatus(runtime?.runtime?.state)}</strong></div>
           <div><span>Runs 24 uur</span><strong>{runtime?.compute?.available ? `${runtime.compute.runs24h ?? "—"} / ${runtime.compute.maxRuns24h ?? "—"}` : "—"}</strong></div>
           <div><span>Prompttokens</span><strong>{runtime?.compute?.available ? `${runtime.compute.promptTokens24h ?? "—"} / ${runtime.compute.maxPromptTokens24h ?? "—"}` : "—"}</strong></div>
         </div>
-        <div className={styles.inspect} style={{ marginTop: 12 }}><span>Production</span><strong className={styles.locked}>Alleen inspectie</strong><p>De stabiele omgeving kan hier alleen worden bekeken. Een onderzoeksopdracht wijzigt deze versie niet.</p></div>
-        <div className={styles.inspect} style={{ marginTop: 10 }}><span>Provider</span><strong>{runtime?.provider?.state || "—"}</strong><p>{runtime?.provider?.retryNotBeforeUtc ? `Retry niet vóór ${runtime.provider.retryNotBeforeUtc}` : runtime?.runtime?.reason || "Geen actieve providerblokkade gerapporteerd."}</p></div>
+        <div className={styles.inspect} style={{ marginTop: 12 }}><span>Stabiele versie</span><strong className={styles.locked}>Alleen inspectie</strong><p>De stabiele omgeving kan hier alleen worden bekeken. Een onderzoeksopdracht wijzigt deze versie niet.</p></div>
+        <div className={styles.inspect} style={{ marginTop: 10 }}><span>Modelverbinding</span><strong>{plainStatus(runtime?.provider?.state)}</strong><p>{runtime?.provider?.retryNotBeforeUtc ? `Opnieuw proberen na ${runtime.provider.retryNotBeforeUtc}` : runtimeExplanation(runtime?.runtime?.state)}</p></div>
       </aside>
     </section>
 
     <section className={styles.section} hidden={tab !== "Vaardigheden"}>
       <div className={styles.sectionHead}><div><span>Vaardigheden</span><h2>Wat Hermes kan</h2></div><small>{filteredCapabilities.length} zichtbaar</small></div>
       <div className={styles.panel}>
-        <div className={styles.filters}><input aria-label="Zoek vaardigheden" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Zoek skills, toolsets of categorieën…" /></div>
-        <div className={styles.capabilityList}>{filteredCapabilities.slice(0, 20).map((item, index) => <article key={item.id || `${item.name}-${index}`}><strong>{item.name || "Capability"}</strong><p>{item.description || "Geen beschrijving gerapporteerd."}</p><small>{item.type || "unknown"} · {item.category || "uncategorized"}</small></article>)}{!filteredCapabilities.length && <div className={styles.notice}>Geen capabilities geladen. Brain Studio verzint geen inventory wanneer Hermes die niet levert.</div>}</div>
+        <div className={styles.filters}><input aria-label="Zoek vaardigheden" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Zoek een vaardigheid…" /></div>
+        <div className={styles.capabilityList}>{filteredCapabilities.slice(0, 20).map((item, index) => <article key={item.id || `${item.name}-${index}`}><strong>{item.name || "Vaardigheid"}</strong><p><Link href="/analyses#vaardigheden">Bekijk de volledige beschrijving</Link></p><small>Door Hermes beschikbare vaardigheid</small></article>)}{!filteredCapabilities.length && <div className={styles.notice}>Er zijn geen vaardigheden ontvangen. De beschikbaarheid is nog niet bevestigd.</div>}</div>
       </div>
     </section>
 
     <section className={styles.section} hidden={tab !== "Verbeteringen"}>
-      <div className={styles.sectionHead}><div><span>Improvement lifecycle</span><h2>Onderzoek naar verbeteringen</h2></div><small>persistence: {persistence}</small></div>
+      <div className={styles.sectionHead}><div><span>Van idee naar verbetering</span><h2>Onderzoek naar verbeteringen</h2></div><small>opslagstatus: {persistence === "hermes_session" ? "Hermes-sessie" : "niet bevestigd"}</small></div>
       <div className={styles.lifecycle}>{lifecycle.map((step) => <span key={step}>{step}</span>)}</div>
       <div className={styles.improvementGrid} style={{ marginTop: 12 }}>
-        <form className={`${styles.panel} ${styles.improvementForm}`} onSubmit={createImprovement}><div className={styles.panelHead}><div><span>Nieuwe verbetering</span><h2>Start met bewijs</h2></div></div><textarea aria-label="Doel van het verbeteronderzoek" rows={6} value={improvementGoal} onChange={(event) => setImprovementGoal(event.target.value)} placeholder="Beschrijf de capability of zwakte die Hermes moet onderzoeken…" /><div><small>Maakt eerst een persistente his-research sessie en start daarna policy-gated research.</small><button disabled={!runtime || improvementBusy || !improvementGoal.trim()}>{improvementBusy ? "START…" : "Start verbeteronderzoek"}</button></div></form>
-        <div className={styles.panel}><div className={styles.panelHead}><div><span>Persistente sessies</span><h2>Recente verbeteronderzoeken</h2></div></div><div className={styles.improvementList}>{improvementSessions.slice(0, 10).map((item, index) => <article key={item.id || item.session_id || index}><strong>{item.title || item.id || item.session_id || "Improvement session"}</strong><p>Dit onderzoek is opgeslagen in Hermes.</p><small>{String(item.updated_at || item.created_at || "")}</small></article>)}{!improvementSessions.length && <div className={styles.notice}>Nog geen improvement-sessies gevonden, of de Hermes session-search geeft ze nog niet terug.</div>}</div></div>
+        <form className={`${styles.panel} ${styles.improvementForm}`} onSubmit={createImprovement}><div className={styles.panelHead}><div><span>Nieuwe verbetering</span><h2>Start met bewijs</h2></div></div><textarea aria-label="Doel van het verbeteronderzoek" rows={6} value={improvementGoal} onChange={(event) => setImprovementGoal(event.target.value)} placeholder="Beschrijf wat Hermes moet onderzoeken of verbeteren…" /><div><small>Slaat je opdracht op en start onderzoek binnen de ingestelde grenzen.</small><button disabled={!runtime || improvementBusy || !improvementGoal.trim()}>{improvementBusy ? "START…" : "Start verbeteronderzoek"}</button></div></form>
+        <div className={styles.panel}><div className={styles.panelHead}><div><span>Persistente sessies</span><h2>Recente verbeteronderzoeken</h2></div></div><div className={styles.improvementList}>{improvementSessions.slice(0, 10).map((item, index) => <article key={item.id || item.session_id || index}><strong>{item.title || item.id || item.session_id || "Improvement session"}</strong><p>Dit onderzoek is opgeslagen in Hermes.</p><small>{String(item.updated_at || item.created_at || "")}</small></article>)}{!improvementSessions.length && <div className={styles.notice}>Er zijn nog geen opgeslagen verbeteronderzoeken gevonden.</div>}</div></div>
       </div>
     </section>
     </ViewTabs>

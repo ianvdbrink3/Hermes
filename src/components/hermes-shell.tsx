@@ -16,6 +16,7 @@ const nav: Array<{ section: HermesSection; href: string; label: string; icon: st
 ];
 
 const secondaryNav = [
+  { href: "/analyses", label: "Uitgebreide analyses", icon: "≡" },
   { href: "/instellingen/systeem", label: "Systeemstatus", icon: "◎" },
   { href: "/instellingen/geavanceerd", label: "Hermes verbeteren", icon: "✦" },
   { href: "/instellingen", label: "Instellingen", icon: "⚙" },
@@ -53,7 +54,7 @@ export function HermesShell({
           <b>H</b>
           <span>
             <strong>Hermes</strong>
-            <small>Investment OS</small>
+            <small>Beleggingsomgeving</small>
           </span>
         </Link>
 
@@ -63,9 +64,9 @@ export function HermesShell({
             <Link
               key={item.section}
               href={item.href}
-              aria-current={active === item.section ? "page" : undefined}
+              aria-current={pathname === item.href ? "page" : undefined}
               title={item.label}
-              className={active === item.section ? styles.active : ""}
+              className={pathname === item.href ? styles.active : ""}
             >
               <span className={styles.navIcon}>{item.icon}</span>
               <span>{item.label}</span>
@@ -90,7 +91,7 @@ export function HermesShell({
             <i className={styles.dot + " " + styles["dot_" + statusTone]} />
             <strong>{toneLabel(statusTone)}</strong>
           </div>
-          <p>{status || "Runtime status laden…"}</p>
+          <p>{status || "Systeemstatus laden…"}</p>
         </div>
       </aside>
 
@@ -122,7 +123,7 @@ export function HermesShell({
         <main id="hermes-content" tabIndex={-1} className={styles.main + (wide ? " " + styles.wide : "")}>{children}</main>
       </section>
       <nav className={styles.mobileNav} aria-label="Mobiele hoofdnavigatie">
-        {[...nav, { section: "instellingen", href: "/instellingen", label: "Instellingen", icon: "⚙" }].map(item => <Link key={item.href} href={item.href} aria-current={active === item.section ? "page" : undefined}><span aria-hidden="true">{item.icon}</span><span>{item.label}</span></Link>)}
+        {[...nav, { section: "instellingen", href: "/instellingen", label: "Instellingen", icon: "⚙" }].map(item => <Link key={item.href} href={item.href} aria-current={pathname === item.href ? "page" : undefined}><span aria-hidden="true">{item.icon}</span><span>{item.label}</span></Link>)}
       </nav>
     </div>
   );

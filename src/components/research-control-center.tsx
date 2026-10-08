@@ -11,6 +11,7 @@ import {
   type FixtureReviewFeed,
 } from "@/lib/os/fixture-review";
 import { HermesShell, type HermesTone } from "./hermes-shell";
+import { plainStatus, runtimeExplanation, activityLabel } from "@/lib/os/presentation";
 import styles from "./research-control-center.module.css";
 
 type RecordLike = Record<string, unknown>;
@@ -136,31 +137,12 @@ function stateTone(state?: RuntimeState): HermesTone {
   return "muted";
 }
 
-function stateLabel(state?: RuntimeState) {
-  const labels: Partial<Record<RuntimeState, string>> = {
-    READY: "Klaar",
-    RUNNING: "Beoordeling actief",
-    WAITING_PROVIDER: "Provider cooldown",
-    WAITING_PROVIDER_UNVERIFIED: "Providerstatus onzeker",
-    WAITING_BUDGET: "Compute-budget bereikt",
-    WAITING_SPACING: "Wachtvenster actief",
-    NEEDS_HUMAN: "Jouw actie nodig",
-    BLOCKED_UNVERIFIED_USAGE: "Usage niet verifieerbaar",
-    BLOCKED_INTEGRITY: "Integriteitsblokkade",
-    IDLE: "Router idle",
-    DEGRADED: "Beperkt beschikbaar",
-    OFFLINE: "Runtime offline",
-  };
-  return state ? labels[state] || state : "Status laden…";
-}
+function stateLabel(state?: RuntimeState) { return state ? plainStatus(state) : "Status laden…"; }
 
-function eventTitle(item: RecordLike) {
-  return compact(item.title || item.event || item.type || item.state || "Runtime-event", 120);
-}
+function eventTitle(item: RecordLike) { return activityLabel(item.event || item.type || item.state); }
 
-function eventBody(item: RecordLike) {
-  return compact(item.message || item.reason || item.result || item.detail || item.status, 180);
-}
+function eventBody() { return "De volledige toelichting staat bij Uitgebreide analyses, onder Ontwikkeling en systeem."; }
+
 
 export function ResearchControlCenter() {
   const requestSequence = useRef(0);
@@ -230,7 +212,7 @@ export function ResearchControlCenter() {
           <span className={styles.eyebrow}>Onderzoek en ontwikkeling</span>
           <div className={styles.stateLine}><i className={styles["tone_" + tone]} /><strong>{status}</strong></div>
           <h1>Waar werkt Hermes aan?</h1>
-          <p>Volg het ontwikkelonderzoek en de controles waarmee Hermes zichzelf verbetert. De analyses van marktdata staan bij <Link href="/trading">Trading</Link>, onder Analyses.</p><details><summary>De huidige onderzoeksopdracht</summary><p>{text(snapshot?.mission?.objective || snapshot?.runtime?.reason)}</p></details>
+          <p>Volg het ontwikkelonderzoek en de controles waarmee Hermes zichzelf verbetert. De analyses van marktdata staan bij <Link href="/trading">Trading</Link>, onder Analyses.</p><p><Link href="/analyses#systeem">Lees de volledige onderzoeksopdracht →</Link></p>
         </div>
         <div className={styles.headerMeta}>
           <span>Laatst bijgewerkt</span>
@@ -243,26 +225,26 @@ export function ResearchControlCenter() {
         <article className={styles.currentCard}>
           <span>Huidig onderzoek</span>
           <strong>{status}</strong>
-          <p>{compact(snapshot?.mission?.inProgress || snapshot?.runtime?.reason, 230)}</p>
+          <p>{runtimeExplanation(snapshot?.runtime?.state)}</p>
           {current?.status ? <b>{current.label}</b> : null}
         </article>
 
         <article>
           <span>Hierna</span>
           <strong>{snapshot?.mission?.next ? "Volgende onderzoeksstap" : "Nog niet bevestigd"}</strong>
-          <p>{compact(snapshot?.mission?.next, 190)}</p>
+          <p>{snapshot?.mission?.next ? "Er is een vervolgstap vastgelegd. Bekijk de volledige onderzoeksopdracht voor de inhoud." : "Er is nog geen vervolgstap bevestigd."}</p>
         </article>
 
         <article>
           <span>Modelverbinding</span>
-          <strong>{snapshot?.provider?.cooldownActive ? "Wacht op modelcapaciteit" : snapshot?.provider?.state === "AVAILABLE" ? "Beschikbaar" : snapshot?.provider?.state || "Onbekend"}</strong>
-          <p>{snapshot?.provider?.retryNotBeforeUtc ? "Retry na " + formatDate(snapshot.provider.retryNotBeforeUtc) : snapshot?.provider?.model || "Geen modelstatus"}</p>
+          <strong>{snapshot?.provider?.cooldownActive ? "Wacht op modelcapaciteit" : snapshot?.provider?.state === "AVAILABLE" ? "Beschikbaar" : plainStatus(snapshot?.provider?.state)}</strong>
+          <p>{snapshot?.provider?.retryNotBeforeUtc ? "Opnieuw proberen na " + formatDate(snapshot.provider.retryNotBeforeUtc) : snapshot?.provider?.model || "Geen modelstatus"}</p>
         </article>
 
         <article>
           <span>Automatische planning</span>
           <strong>{snapshot?.scheduler?.active === true ? "Actief" : snapshot?.scheduler?.active === false ? "Niet actief" : "Onbekend"}</strong>
-          <p>{snapshot?.scheduler?.nextRun ? "Volgende check " + formatDate(snapshot.scheduler.nextRun) : compact(snapshot?.scheduler?.lastStatus, 160)}</p>
+          <p>{snapshot?.scheduler?.nextRun ? "Volgende check " + formatDate(snapshot.scheduler.nextRun) : "Geen volgend tijdstip bevestigd"}</p>
         </article>
       </section>
 
@@ -341,11 +323,11 @@ export function ResearchControlCenter() {
         <div className={styles.panel}>
           <header className={styles.panelHead}><div><span>Mission</span><h2>Onderzoeksopdracht</h2></div></header>
           <dl className={styles.definitionRows}>
-            <div><dt>Doel</dt><dd>{text(snapshot?.mission?.objective)}</dd></div>
-            <div><dt>In uitvoering</dt><dd>{text(snapshot?.mission?.inProgress)}</dd></div>
-            <div><dt>Hierna</dt><dd>{text(snapshot?.mission?.next)}</dd></div>
-            <div><dt>Blokkades</dt><dd>{text(snapshot?.mission?.blockers)}</dd></div>
-            <div><dt>Jouw actie</dt><dd>{text(snapshot?.mission?.needsHuman)}</dd></div>
+            <div><dt>Doel</dt><dd><Link href="/analyses#systeem">Bekijk de volledige toelichting</Link></dd></div>
+            <div><dt>In uitvoering</dt><dd><Link href="/analyses#systeem">Bekijk de volledige toelichting</Link></dd></div>
+            <div><dt>Hierna</dt><dd><Link href="/analyses#systeem">Bekijk de volledige toelichting</Link></dd></div>
+            <div><dt>Blokkades</dt><dd><Link href="/analyses#systeem">Bekijk de volledige toelichting</Link></dd></div>
+            <div><dt>Jouw actie</dt><dd><Link href="/analyses#systeem">Bekijk de volledige toelichting</Link></dd></div>
           </dl>
         </div>
 
@@ -364,22 +346,19 @@ export function ResearchControlCenter() {
 
       </details>
       <section className={styles.activity}>
-        <header className={styles.panelHead}><div><span>Activiteit</span><h2>Recente runtime-events</h2></div></header>
+        <header className={styles.panelHead}><div><span>Activiteit</span><h2>Recente activiteit</h2></div></header>
         <div className={styles.timeline}>
           {events.length ? events.map((item, index) => (
             <article key={index}>
               <i />
-              <div><strong>{eventTitle(item)}</strong><p>{eventBody(item)}</p></div>
+              <div><strong>{eventTitle(item)}</strong><p>{eventBody()}</p></div>
               <time>{formatDate(item.timestamp || item.ts)}</time>
             </article>
           )) : <div className={styles.empty}>Geen recente events in de statefeed.</div>}
         </div>
       </section>
 
-      <details className={styles.technical}>
-        <summary>Technische state en evidence</summary>
-        <pre>{JSON.stringify({ mission: snapshot?.mission, lastReview: snapshot?.lastReview, fixtureReview: snapshot?.fixtureReview, safety: snapshot?.safety }, null, 2)}</pre>
-      </details>
+      <p><Link href="/analyses#systeem">Uitgebreide systeemtoelichting →</Link></p>
     </HermesShell>
   );
 }

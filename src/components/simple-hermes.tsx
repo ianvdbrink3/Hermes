@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HermesShell, type HermesTone } from "./hermes-shell";
-import { ownerActionKnown } from "@/lib/os/presentation";
+import { ownerActionKnown, plainStatus, runtimeExplanation, activityLabel } from "@/lib/os/presentation";
 import { ShadowOverview } from "./shadow-overview";
 import styles from "./simple-hermes.module.css";
 
@@ -128,23 +128,7 @@ function stateTone(state?: string): HermesTone {
   return "muted";
 }
 
-function stateLabel(state?: string) {
-  const labels: Record<string, string> = {
-    READY: "Klaar",
-    RUNNING: "Onderzoek actief",
-    WAITING_PROVIDER: "Provider cooldown",
-    WAITING_PROVIDER_UNVERIFIED: "Providerstatus onzeker",
-    WAITING_BUDGET: "Compute-budget bereikt",
-    WAITING_SPACING: "Wachtvenster actief",
-    NEEDS_HUMAN: "Jouw actie nodig",
-    BLOCKED_UNVERIFIED_USAGE: "Usage niet verifieerbaar",
-    BLOCKED_INTEGRITY: "Integriteitsblokkade",
-    IDLE: "Router idle",
-    DEGRADED: "Beperkt beschikbaar",
-    OFFLINE: "Runtime offline",
-  };
-  return state ? labels[state] || state : "Status laden…";
-}
+function stateLabel(state?: string) { return state ? plainStatus(state) : "Status laden…"; }
 
 function connectionLabel(state?: string) {
   if (state === "connected") return "Verbonden";
@@ -155,28 +139,16 @@ function connectionLabel(state?: string) {
   return "Onbekend";
 }
 
-function eventTitle(item: RecordLike) {
-  return short(item.title || item.event || item.type || item.state || "Runtime-event", 120);
-}
+function eventTitle(item: RecordLike) { return activityLabel(item.event || item.type || item.state); }
 
-function eventBody(item: RecordLike) {
-  return short(item.message || item.reason || item.result || item.detail || item.status, 170);
-}
+function eventBody() { return "De volledige toelichting staat bij Uitgebreide analyses, onder Ontwikkeling en systeem."; }
+
 
 function missionTitle(snapshot: Snapshot | null) {
   return snapshot?.mission?.fixture || short(snapshot?.mission?.taskId, 44) || "Geen actieve mission";
 }
 
-function runtimeMessage(snapshot: Snapshot | null) {
-  const state = snapshot?.runtime?.state;
-  if (state === "RUNNING") return "Hermes voert nu gecontroleerd researchwerk uit.";
-  if (state === "WAITING_PROVIDER") return "Hermes wacht veilig op nieuwe modelcapaciteit.";
-  if (state === "WAITING_BUDGET") return "Hermes wacht tot compute weer beschikbaar is.";
-  if (state === "NEEDS_HUMAN") return "Een menselijke beslissing blokkeert de volgende stap.";
-  if (state === "BLOCKED_INTEGRITY") return "Een integriteitscontrole blokkeert verdere progressie.";
-  if (state === "OFFLINE") return "De runtime is momenteel niet bereikbaar.";
-  return snapshot?.runtime?.reason || "Hermes bewaakt de huidige researchstate en gaat alleen verder binnen de ingestelde grenzen.";
-}
+function runtimeMessage(snapshot: Snapshot | null) { return runtimeExplanation(snapshot?.runtime?.state); }
 
 export function SimpleHermes({ page }: { page: Page }) {
   const requestSequence = useRef(0);
@@ -245,7 +217,7 @@ export function SimpleHermes({ page }: { page: Page }) {
     return (
       <>
         <header className={styles.pageHeader}><span className={styles.eyebrow}>Jouw Hermes</span><h1>Wat gebeurt er vandaag?</h1><p>Volg de marktobservaties, bekijk wat Hermes onderzoekt en zie of jij iets moet doen.</p></header>
-        {actionKnown && needsYou && <section className={styles.priorityAttention}><h2>Hermes heeft jouw hulp nodig</h2><p>{short(snapshot?.mission?.needsHuman, 300)}</p><Link href="/beslissingen">Bekijk jouw actie →</Link></section>}
+        {actionKnown && needsYou && <section className={styles.priorityAttention}><h2>Hermes heeft jouw hulp nodig</h2><p>Een onderzoeksstap wacht op jouw keuze. Open Jouw acties om te zien wat je kunt doen.</p><Link href="/beslissingen">Bekijk jouw actie →</Link></section>}
         <ShadowOverview />
         <section className={styles.missionHero}>
           <div className={styles.missionTop}>
@@ -263,13 +235,13 @@ export function SimpleHermes({ page }: { page: Page }) {
 
           <div className={styles.missionCopy}>
             <h2>{status}</h2>
-            <details><summary>Wat onderzoekt Hermes precies?</summary><p>{short(snapshot?.mission?.objective, 1000)}</p><small>{missionTitle(snapshot)}</small></details>
+            <Link href="/analyses#systeem">Lees de volledige onderzoeksopdracht →</Link>
             <p>{runtimeMessage(snapshot)}</p>
           </div>
 
           <div className={styles.nextStep}>
             <span>Volgende stap</span>
-            <strong>{short(snapshot?.mission?.next, 210)}</strong>
+            <strong>{snapshot?.mission?.next ? "De geplande vervolgstap staat in de uitgebreide onderzoeksopdracht." : "Nog niet bevestigd"}</strong>
           </div>
 
           <div className={styles.heroActions}>
@@ -282,7 +254,7 @@ export function SimpleHermes({ page }: { page: Page }) {
           <article className={needsYou ? styles.priorityAttention : styles.priorityGood}>
             <div className={styles.cardLabel}>Jouw actie</div>
             <strong>{!actionKnown ? "Nog niet bevestigd" : needsYou ? "Beslissing nodig" : "Geen actie nodig"}</strong>
-            <p>{!actionKnown ? "De actuele actie-status is niet beschikbaar." : needsYou ? short(snapshot?.mission?.needsHuman, 160) : "Hermes kan binnen de ingestelde grenzen zelfstandig verder."}</p>
+            <p>{!actionKnown ? "De actuele actie-status is niet beschikbaar." : needsYou ? "Bekijk Jouw acties voor de benodigde keuze." : "Hermes kan binnen de ingestelde grenzen zelfstandig verder."}</p>
             {needsYou ? <Link href="/beslissingen">Open beslissing →</Link> : null}
           </article>
 
@@ -293,15 +265,15 @@ export function SimpleHermes({ page }: { page: Page }) {
           </article>
 
           <article>
-            <div className={styles.cardLabel}>Compute · 24 uur</div>
+            <div className={styles.cardLabel}>Modelgebruik · 24 uur</div>
             <strong>{compute?.available ? ratio(compute.runs24h, compute.maxRuns24h) : "Niet beschikbaar"}</strong>
             <p>{compute?.available ? ratio(compute.totalTokens24h, compute.maxTotalTokens24h) + " tokens" : "Compute-telemetrie ontbreekt in de statefeed."}</p>
           </article>
 
           <article>
             <div className={styles.cardLabel}>Safety</div>
-            <strong className={styles.locked}>Execution locked</strong>
-            <p>Paper en live execution blijven buiten browsercontrole.</p>
+            <strong className={styles.locked}>Uitvoering beschermd</strong>
+            <p>Dit scherm kan geen transacties uitvoeren.</p>
           </article>
         </section>
 
@@ -313,9 +285,9 @@ export function SimpleHermes({ page }: { page: Page }) {
             </header>
             <dl className={styles.statusRows}>
               <div><dt>Huidig werk</dt><dd>{missionTitle(snapshot)}</dd></div>
-              <div><dt>In uitvoering</dt><dd>{short(snapshot?.mission?.inProgress, 220)}</dd></div>
-              <div><dt>Blokkades</dt><dd>{short(snapshot?.mission?.blockers, 220)}</dd></div>
-              <div><dt>Laatste werk</dt><dd>{short(snapshot?.mission?.lastCompletedWork, 220)}</dd></div>
+              <div><dt>In uitvoering</dt><dd><Link href="/analyses#systeem">Bekijk de vastgelegde toelichting</Link></dd></div>
+              <div><dt>Blokkades</dt><dd><Link href="/analyses#systeem">Bekijk de vastgelegde toelichting</Link></dd></div>
+              <div><dt>Laatste werk</dt><dd><Link href="/analyses#systeem">Bekijk de vastgelegde toelichting</Link></dd></div>
             </dl>
           </div>
 
@@ -336,7 +308,7 @@ export function SimpleHermes({ page }: { page: Page }) {
         </details>
         <section className={styles.activitySection}>
           <header className={styles.panelHead}>
-            <div><span>Timeline</span><h2>Recente activiteit</h2></div>
+            <div><span>Activiteit</span><h2>Recente activiteit</h2></div>
           </header>
           <div className={styles.timeline}>
             {events.length ? events.map((item, index) => (
@@ -344,7 +316,7 @@ export function SimpleHermes({ page }: { page: Page }) {
                 <i />
                 <div>
                   <strong>{eventTitle(item)}</strong>
-                  <p>{eventBody(item)}</p>
+                  <p>{eventBody()}</p>
                 </div>
                 <time>{formatDate(item.timestamp || item.ts, true)}</time>
               </article>
@@ -462,10 +434,7 @@ export function SimpleHermes({ page }: { page: Page }) {
           </Link>
         </section>
 
-        <details className={styles.rawState}>
-          <summary>Technische OS-state</summary>
-          <pre>{JSON.stringify({ snapshot, decisions }, null, 2)}</pre>
-        </details>
+        <p><Link href="/analyses#systeem">Uitgebreide systeemtoelichting →</Link></p>
       </>
     );
   }

@@ -2,3 +2,5 @@
 @media(max-width:760px){.header{display:block}.header button{margin-top:14px}.story,.panel,.metrics article{padding:20px}.decisionFacts,.safety,.performance,.research{grid-template-columns:1fr}.metrics{grid-template-columns:1fr}.metrics article{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}.metrics strong{font-size:26px;margin:0}.metrics small{grid-column:1/-1}.details div{flex-wrap:wrap}.details dd{text-align:left}}
 
 .dashboard{grid-template-columns:minmax(0,1fr)}.dashboard>*{min-width:0}.panel{min-width:0;max-width:100%}.scroll{max-width:100%}
+
+.reasoning{border-top:1px solid var(--ui-line);padding-top:20px}.reasoning h3{margin:0 0 12px}.reasoning ul{display:grid;gap:12px;padding-left:22px;line-height:1.65}.reasoning a,.panel a{color:var(--ui-accent);text-underline-offset:4px}.panel li{line-height:1.65;margin:8px 0}

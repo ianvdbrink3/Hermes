@@ -80,16 +80,16 @@ function explainAction(gate: string, blockers: string): ActionExplanation {
   if (source.includes("permission") || source.includes("approval") || source.includes("human")) {
     return {
       title: "Hermes wacht op jouw toestemming",
-      instruction: gate || "Bekijk de technische omschrijving hieronder om te zien welke expliciete toestemming Hermes nodig heeft.",
-      reason: blockers || "Deze stap valt buiten de acties die Hermes zelfstandig mag uitvoeren.",
+      instruction: "Bekijk de volledige oorspronkelijke toelichting en bespreek de benodigde keuze met Hermes.",
+      reason: "Deze stap valt buiten de acties die Hermes zelfstandig mag uitvoeren. De oorspronkelijke toelichting staat bij Uitgebreide analyses.",
       consequence: "Alleen dit geblokkeerde onderdeel wacht; ander veilig werk mag waar mogelijk doorgaan.",
     };
   }
 
   return {
     title: "Bekijk de open menselijke blokkade",
-    instruction: gate || "Hermes heeft een menselijke beslissing nodig voordat deze specifieke stap verder kan.",
-    reason: blockers || "Hermes heeft deze stap als menselijke grens gemarkeerd.",
+    instruction: "Bekijk de volledige oorspronkelijke toelichting en bespreek de benodigde keuze met Hermes.",
+    reason: "Hermes heeft deze stap als menselijke grens gemarkeerd. De oorspronkelijke toelichting staat bij Uitgebreide analyses.",
     consequence: "Andere veilige taken kunnen doorgaan, maar deze specifieke stap blijft wachten totdat jij beslist.",
   };
 }
@@ -262,12 +262,7 @@ export function OwnerActionCenter() {
 
           {explanation.note && <div className={styles.safetyNote}>✓ {explanation.note}</div>}
 
-          <details className={styles.details}>
-            <summary>Technische bron bekijken</summary>
-            <div><strong>Open menselijke gate</strong><pre>{gate || "Geen brontekst"}</pre></div>
-            <div><strong>Blokkades</strong><pre>{blockers || "Geen aparte blokkadetekst"}</pre></div>
-            <div><strong>Huidig onderzoek</strong><pre>{objective || "Geen objective geladen"}</pre></div>
-          </details>
+          <Link href="/analyses#systeem" onClick={() => setOpen(false)}>Lees de volledige oorspronkelijke toelichting →</Link>
         </div>
 
         <footer className={styles.footer}>

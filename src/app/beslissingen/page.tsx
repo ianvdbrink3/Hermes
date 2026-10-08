@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HermesShell, type HermesTone } from "@/components/hermes-shell";
-import { ownerActionKnown } from "@/lib/os/presentation";
+import { ownerActionKnown, plainStatus } from "@/lib/os/presentation";
 import Link from "next/link";
 import styles from "./beslissingen.module.css";
 
@@ -93,7 +93,7 @@ export default function BeslissingenPage() {
   return (
     <HermesShell
       active="beslissingen"
-      status={state || "Status laden…"}
+      status={state ? plainStatus(state) : "Status laden…"}
       statusTone={tone(state)}
       actions={<button onClick={() => void refresh()} disabled={loading}>{loading ? "Laden…" : "Ververs"}</button>}
     >
@@ -107,25 +107,18 @@ export default function BeslissingenPage() {
         <article className={needsHuman ? styles.open : styles.clear}>
           <span>Open beslissing</span>
           <strong>{!actionKnown ? "Actiestatus onbekend" : needsHuman ? "Actie nodig" : "Geen actie nodig"}</strong>
-          <p>{!actionKnown ? "De status kon nog niet worden bevestigd. Vernieuw of bekijk de systeemstatus." : needsHuman ? text(snapshot?.mission?.needsHuman) : "Hermes rapporteert momenteel geen menselijke blokkade."}</p>
+          <p>{!actionKnown ? "De status kon nog niet worden bevestigd. Vernieuw of bekijk de systeemstatus." : needsHuman ? "Open de actie hieronder voor uitleg en de vervolgstap." : "Hermes rapporteert momenteel geen menselijke blokkade."}</p>
         </article>
         <article>
           <span>Waarom</span>
           <strong>{!actionKnown ? "Gegevens ontbreken" : needsHuman ? "Deze stap wacht op jou" : "Geen menselijke blokkade gemeld"}</strong>
-          <p>{text(snapshot?.mission?.blockers)}</p>
+          <p>{needsHuman ? "Hermes heeft een keuze of instelling van jou nodig voordat deze stap verder kan." : "De vastgelegde toelichting staat bij Uitgebreide analyses."}</p>
         </article>
       </section>
 
       {actionKnown && needsHuman && state === "NEEDS_HUMAN" && <button type="button" onClick={() => window.dispatchEvent(new Event("hermes:open-actions"))}>Bekijk de actie</button>}
       <p><Link href="/onderzoek">Bekijk de onderzoekscontext →</Link> · <Link href="/instellingen/systeem">Controleer de systeemstatus →</Link></p>
-      <details className={styles.panel}><summary>Onderzoekscontext bekijken</summary>
-        <header><div><span>Context</span><h2>Huidige opdracht</h2></div></header>
-        <dl>
-          <div><dt>Doel</dt><dd>{text(snapshot?.mission?.objective)}</dd></div>
-          <div><dt>Hierna</dt><dd>{text(snapshot?.mission?.next)}</dd></div>
-          <div><dt>Laatste werk</dt><dd>{text(snapshot?.mission?.lastCompletedWork)}</dd></div>
-        </dl>
-      </details>
+      <p><Link href="/analyses#systeem">Lees de volledige onderzoekscontext →</Link></p>
 
       <section className={styles.history}>
         <header><div><span>Historie</span><h2>Vastgelegde beslissingen</h2></div><small>{history.length} zichtbaar</small></header>
@@ -133,12 +126,12 @@ export default function BeslissingenPage() {
           {history.length ? history.map((item, index) => (
             <article key={String(item.id || item.decision_id || index)}>
               <div>
-                <strong>{text(item.title || item.decision || item.type || "Beslissing")}</strong>
-                <p>{text(item.reason || item.summary || item.result || item.status)}</p>
+                <strong>Onderzoeksbeslissing vastgelegd</strong>
+                <p><Link href="/analyses#systeem">Bekijk de oorspronkelijke toelichting</Link></p>
               </div>
-              <span>{text(item.status || item.verdict || "vastgelegd")}</span>
+              <span>{plainStatus(item.status || item.verdict)}</span>
             </article>
-          )) : <div className={styles.empty}>De actuele statefeed bevat nog geen afzonderlijke decision history.</div>}
+          )) : <div className={styles.empty}>De actuele statefeed bevat nog geen afzonderlijke beslishistorie.</div>}
         </div>
       </section>
     </HermesShell>
