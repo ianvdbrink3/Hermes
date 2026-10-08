@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import { shadowCycleHealthy } from "./g11-shadow-status";
 import type { ShadowSnapshot } from "./g11-shadow";
 const at = "2026-10-08T14:06:42.778420+00:00";
-function snapshot(status: string, overrides: Record<string, unknown> = {}) {
-  return { health: { status, last_observation: at, ...overrides }, latest: { at },
-    safety: { reconciled: true, journal_verified: true } } as ShadowSnapshot;
+function snapshot(status: string, overrides: Record<string, unknown> = {}): ShadowSnapshot {
+  return { schema_version: 1, generated_at: at, read_only: true, live_orders_enabled: false,
+    health: { status, last_observation: at, ...overrides }, latest: { at },
+    history: [], metrics: {}, pnl: null, research_health: {}, daemon: {}, research: [], research_fixture: null,
+    risk_counts: { blocks: 0, resizes: 0 },
+    safety: { reconciled: true, journal_verified: true, kill_switch: false, pending_recovery: false, incomplete_decisions: false } };
 }
 describe("cycle health", () => {
   it("accepts completed daily observation without demanding a second cycle", () => {
