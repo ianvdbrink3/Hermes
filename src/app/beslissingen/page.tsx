@@ -116,6 +116,7 @@ export default function BeslissingenPage() {
         </article>
       </section>
 
+      {actionKnown && needsHuman && state === "NEEDS_HUMAN" && <button type="button" onClick={() => window.dispatchEvent(new Event("hermes:open-actions"))}>Bekijk de actie</button>}
       <p><Link href="/onderzoek">Bekijk de onderzoekscontext →</Link> · <Link href="/instellingen/systeem">Controleer de systeemstatus →</Link></p>
       <details className={styles.panel}><summary>Onderzoekscontext bekijken</summary>
         <header><div><span>Context</span><h2>Huidige opdracht</h2></div></header>

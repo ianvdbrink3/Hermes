@@ -135,6 +135,12 @@ export function OwnerActionCenter() {
     return () => window.clearInterval(timer);
   }, [load]);
 
+  useEffect(() => {
+    const openActions = () => setOpen(true);
+    window.addEventListener("hermes:open-actions", openActions);
+    return () => window.removeEventListener("hermes:open-actions", openActions);
+  }, []);
+
   const needsAction = connected && runtimeState === "NEEDS_HUMAN";
   const gitAuthorAction = isGitAuthorGate(gate, blockers);
   const explanation = useMemo(() => explainAction(gate, blockers), [gate, blockers]);
