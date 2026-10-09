@@ -38,7 +38,7 @@ export function G11ShadowDashboard() {
     try {
       const response = await fetch("/api/os/g11-shadow", { cache: "no-store", signal });
       if (!response.ok) {
-        const fallback = "De observatiegegevens zijn niet bereikbaar. De actuele veiligheidsstatus is onbekend.";
+        const fallback = `De Trading-verbinding antwoordt met HTTP ${response.status}, zonder leesbare toelichting. De actuele veiligheidsstatus is onbekend.`;
         const failure = await response.json().catch(() => null);
         throw new Error(typeof failure?.error === "string" && failure.error.length <= 250 ? failure.error : fallback);
       }

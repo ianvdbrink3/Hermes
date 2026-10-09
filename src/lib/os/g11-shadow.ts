@@ -53,6 +53,9 @@ export async function fetchShadowSnapshot(): Promise<ShadowSnapshot | LiteSnapsh
 
 export function shadowFeedFailure(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
+  if (error instanceof Error && error.name === "TimeoutError") return "De gegevensserver antwoordt niet binnen acht seconden. De actuele veiligheidsstatus is onbekend.";
+  if (error instanceof Error && error.name === "SyntaxError") return "De gegevensserver levert geen leesbaar JSON-antwoord. De actuele veiligheidsstatus is onbekend.";
+  if (error instanceof Error && error.name === "TypeError") return "De verbinding met de gegevensserver mislukt. De actuele veiligheidsstatus is onbekend.";
   const status = /^Shadow feed HTTP ([1-5][0-9]{2})$/.exec(message)?.[1];
   if (status) return `De gegevensserver antwoordt met HTTP ${status}. De actuele veiligheidsstatus is onbekend.`;
   if (message === "Shadow feed unavailable") return "De gegevensverbinding is niet ingesteld. De actuele veiligheidsstatus is onbekend.";
