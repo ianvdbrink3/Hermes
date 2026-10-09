@@ -2,10 +2,12 @@
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import UTC,datetime,timedelta
 from pathlib import Path
 from core.domain import canonical_hash
 from g11_lite_snapshot import build_lite_snapshot
+from g11.lite.budget import reserve_attempt
 
 NOW=datetime(2026,10,9,12,tzinfo=UTC)
 class LiteProjectionTest(unittest.TestCase):
@@ -27,6 +29,41 @@ class LiteProjectionTest(unittest.TestCase):
     def save(self):
         (self.root/"dashboard.json").write_text(json.dumps({
             "snapshot":self.data,"snapshot_hash":canonical_hash(self.data)}))
+    def test_projection_never_opens_files_for_writing(self):
+        original=Path.open
+        def read_only(path,mode="r",*args,**kwargs):
+            if any(flag in mode for flag in ("a","w","x","+")):
+                raise OSError(30,"Read-only file system")
+            return original(path,mode,*args,**kwargs)
+        with patch.object(Path,"open",read_only):
+            value=build_lite_snapshot(self.root,NOW)
+        self.assertEqual(value["budget"]["attempts_consumed"],0)
+        self.assertFalse((self.runtime/"g11-model-budget").exists())
+
+    def test_existing_budget_is_validated_without_mutation(self):
+        root=self.runtime/"g11-model-budget"
+        reserve_attempt(root,at=NOW,kind="ANALYSIS",instrument_id="MSFT",one_analysis=True)
+        before={p.name:p.read_bytes() for p in root.iterdir()}
+        original=Path.open
+        def read_only(path,mode="r",*args,**kwargs):
+            if any(flag in mode for flag in ("a","w","x","+")): raise OSError(30,"Read-only file system")
+            return original(path,mode,*args,**kwargs)
+        with patch.object(Path,"open",read_only):
+            value=build_lite_snapshot(self.root,NOW)
+        self.assertEqual(value["budget"]["attempts_consumed"],1)
+        self.assertEqual(before,{p.name:p.read_bytes() for p in root.iterdir()})
+    def test_tampered_budget_is_still_rejected(self):
+        root=self.runtime/"g11-model-budget"
+        reserve_attempt(root,at=NOW,kind="ANALYSIS",instrument_id="MSFT",one_analysis=True)
+        path=root/"attempts.jsonl"
+        path.write_text(path.read_text().replace('"MSFT"','"AAPL"'))
+        with self.assertRaises(ValueError): build_lite_snapshot(self.root,NOW)
+    def test_pending_budget_write_is_preserved_and_rejected(self):
+        root=self.runtime/"g11-model-budget";root.mkdir()
+        marker=root/"budget-write-pending";marker.write_text("incomplete")
+        with self.assertRaises(ValueError): build_lite_snapshot(self.root,NOW)
+        self.assertEqual(marker.read_text(),"incomplete")
+
     def test_valid_empty_operation_is_not_reconciled_paper(self):
         v=build_lite_snapshot(self.root,NOW+timedelta(minutes=1))
         self.assertFalse(v["safety"]["reconciled"])

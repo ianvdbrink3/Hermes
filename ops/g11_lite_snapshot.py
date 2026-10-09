@@ -1,6 +1,8 @@
 """Bounded read-only v2 projection; no providers, collectors or recovery."""
 from __future__ import annotations
 import hashlib
+import fcntl
+from contextlib import nullcontext
 import json
 import re
 import sys
@@ -9,12 +11,31 @@ from pathlib import Path
 
 STOCKS=Path("/home/ubuntu/Hermes-Stocks/r9d-a04-p013-correction")
 sys.path.insert(0,str(STOCKS/"src"))
-from core.domain import canonical_hash
+from core.domain import canonical_hash,require_aware_utc
 from g11.lite.portfolio_cycle import read_lite_days
 from g11.lite.research import read_combined,report_payload,analysis_archive,read_verifiers
-from g11.lite.budget import budget_status
+from g11.lite.budget import _read as read_budget_ledger
 from g11.runtime import parse_utc
 from g11.lite.mode import daemon_identity,universe_hash
+
+def read_only_budget_status(root: Path, *, at: datetime) -> dict:
+    """Read the same validated ledger without creating directories or lock files."""
+    require_aware_utc(at)
+    lock_path=root/"budget.lock"
+    if root.is_symlink() or lock_path.is_symlink():
+        raise ValueError("symlinked model budget")
+    if (root/"attempts.jsonl").exists() and not lock_path.is_file():
+        raise ValueError("model budget lock missing")
+    def fingerprints():
+        return [(name,hashlib.sha256((root/name).read_bytes()).hexdigest()
+                 if (root/name).is_file() else (root/name).exists())
+                for name in ("attempts.jsonl","budget-checkpoint.json","budget-write-pending")]
+    with lock_path.open("r") if lock_path.is_file() else nullcontext() as lock:
+        if lock is not None: fcntl.flock(lock,fcntl.LOCK_SH)
+        before=fingerprints()
+        rows=read_budget_ledger(root,at)
+        if fingerprints()!=before: raise ValueError("model budget changed during projection")
+    return {"reserved":sum(row["event"]=="RESERVED" and row["day"]==at.date().isoformat() for row in rows)}
 
 def bounded_json(path: Path, limit: int=1024*1024) -> dict:
     if path.is_symlink() or not path.is_file() or path.stat().st_size>limit:
@@ -120,7 +141,7 @@ def build_lite_snapshot(root: Path,now: datetime) -> dict:
     if job.get("checked_at") and parse_utc(job["checked_at"])>now:
         raise ValueError("future job health")
     data["job_health"]={"status":job.get("status","UNKNOWN"),"checked_at":job.get("checked_at")}
-    budget=budget_status(root.parent/"g11-model-budget",at=now)
+    budget=read_only_budget_status(root.parent/"g11-model-budget",at=now)
     unknown=mode.get("legacy_usage_blocked_day")==now.date().isoformat()
     reasons=list(data["activation"]["reasons_nl"])
     data["budget"]={"limit":2,"day_utc":now.date().isoformat(),

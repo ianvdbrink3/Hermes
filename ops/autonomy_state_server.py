@@ -404,7 +404,8 @@ class Handler(BaseHTTPRequestHandler):
                     capture_output=True, text=True, timeout=20, check=True,
                 )
                 self.send_json(200, json.loads(result.stdout))
-            except Exception:
+            except Exception as exc:
+                print("G11_PROJECTION_FAILURE", type(exc).__name__, getattr(exc, "returncode", None), "", flush=True)
                 self.send_json(503, {"error": "shadow_snapshot_unavailable"})
             return
         if self.path == "/snapshot":
