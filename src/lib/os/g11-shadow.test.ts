@@ -53,3 +53,23 @@ describe("read-only feed error diagnosis",()=>{
 });
 
 it("never exposes unknown internal error details to the browser",()=>{ expect(shadowFeedFailure(new Error("private-upstream-content unit-test-placeholder"))).not.toMatch(/private-upstream-content|unit-test-placeholder/); expect(shadowFeedFailure(new Error("Shadow feed HTTP 404"))).toContain("HTTP 404"); });
+
+it("accepts a nine-second verified feed while keeping a bounded timeout", async()=>{
+  vi.useFakeTimers();
+  try {
+    vi.stubEnv("HERMES_AUTONOMY_STATE_URL","https://example.invalid/autonomy-state/snapshot");
+    vi.stubEnv("HERMES_AUTONOMY_STATE_API_KEY","unit-test-placeholder");
+    vi.spyOn(AbortSignal,"timeout").mockImplementation(ms=>{
+      const controller=new AbortController();
+      setTimeout(()=>controller.abort(new DOMException("Timed out","TimeoutError")),ms);
+      return controller.signal;
+    });
+    vi.stubGlobal("fetch",vi.fn().mockImplementation((_url,options)=>new Promise((resolve,reject)=>{
+      options.signal.addEventListener("abort",()=>reject(options.signal.reason),{once:true});
+      setTimeout(()=>resolve({ok:true,json:async()=>valid()}),9000);
+    })));
+    const result=expect(fetchShadowSnapshot()).resolves.toMatchObject({read_only:true,live_orders_enabled:false});
+    await vi.advanceTimersByTimeAsync(9000);
+    await result;
+  } finally {vi.restoreAllMocks();vi.useRealTimers();}
+});

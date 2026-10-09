@@ -401,7 +401,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = subprocess.run(
                     ["/home/ubuntu/Hermes-Stocks/r9d-a04-p013-correction/.venv/bin/python",
                      "/home/ubuntu/Hermes-OS-g11/ops/g11_shadow_snapshot.py"],
-                    capture_output=True, text=True, timeout=6, check=True,
+                    capture_output=True, text=True, timeout=20, check=True,
                 )
                 self.send_json(200, json.loads(result.stdout))
             except Exception:

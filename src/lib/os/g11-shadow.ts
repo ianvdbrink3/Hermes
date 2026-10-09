@@ -46,14 +46,14 @@ export async function fetchShadowSnapshot(): Promise<ShadowSnapshot | LiteSnapsh
   url.pathname = url.pathname.replace(/\/snapshot$/, "/g11-shadow");
   if (!url.pathname.endsWith("/g11-shadow")) throw new Error("Invalid state feed path");
   url.search = ""; url.hash = "";
-  const response = await fetch(url, { headers: { Authorization: `Bearer ${key}`, Accept: "application/json" }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(8_000) });
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${key}`, Accept: "application/json" }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(25_000) });
   if (!response.ok) throw new Error(`Shadow feed HTTP ${response.status}`);
   return parseG11Snapshot(await response.json());
 }
 
 export function shadowFeedFailure(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
-  if (error instanceof Error && error.name === "TimeoutError") return "De gegevensserver antwoordt niet binnen acht seconden. De actuele veiligheidsstatus is onbekend.";
+  if (error instanceof Error && error.name === "TimeoutError") return "De gegevensserver antwoordt niet binnen 25 seconden. De actuele veiligheidsstatus is onbekend.";
   if (error instanceof Error && error.name === "SyntaxError") return "De gegevensserver levert geen leesbaar JSON-antwoord. De actuele veiligheidsstatus is onbekend.";
   if (error instanceof Error && error.name === "TypeError") return "De verbinding met de gegevensserver mislukt. De actuele veiligheidsstatus is onbekend.";
   const status = /^Shadow feed HTTP ([1-5][0-9]{2})$/.exec(message)?.[1];
