@@ -60,3 +60,27 @@ describe("data freshness",()=>{
     expect(liteStatus(v)).toBe("Laatste controle mislukt");
   });
 });
+
+describe("Decimal wire notation",()=>{
+  it.each(["-3.54993141075122372364E-8","0E-27","1e-8","1E+2"])(
+    "accepts finite Decimal change %s without dropping the stock overview",change=>{
+      const v=validLite();v.scan.rows[0].change=change;
+      const result=parseG11Snapshot(v);
+      expect(result.schema_version).toBe(2);
+      expect(result).toHaveProperty("scan.rows.0.change",change);
+    });
+  it("accepts finite exponent price while preserving original text",()=>{
+    const v=validLite();v.scan.rows[0].price="1.25E+2";
+    expect(parseLiteSnapshot(v).scan.rows[0].price).toBe("1.25E+2");
+  });
+  it.each(["NaN","Infinity","1e309","1e","1e-","0x10","1e2junk"," 1e2"])(
+    "rejects malformed or non-finite change %s",change=>{
+      const v=validLite();v.scan.rows[0].change=change;
+      expect(()=>parseLiteSnapshot(v)).toThrow();
+    });
+  it.each(["0E-8","-1E+2","1e-999","1e309"])(
+    "rejects non-positive or non-finite price %s",price=>{
+      const v=validLite();v.scan.rows[0].price=price;
+      expect(()=>parseLiteSnapshot(v)).toThrow();
+    });
+});

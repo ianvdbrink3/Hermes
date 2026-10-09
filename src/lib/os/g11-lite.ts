@@ -42,7 +42,7 @@ const count=(v:unknown)=>typeof v==="number"&&Number.isSafeInteger(v)&&v>=0;
 const hash=(v:unknown)=>typeof v==="string"&&/^[a-f0-9]{64}$/.test(v);
 const time=(v:unknown,now:number)=>typeof v==="string"&&/[Zz]$|\+00:00$/.test(v)&&
   Number.isFinite(Date.parse(v))&&Date.parse(v)<=now+1000;
-const numeric=(v:unknown)=>typeof v==="string"&&/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(v)&&Number.isFinite(Number(v));
+const numeric=(v:unknown)=>typeof v==="string"&&/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(v)&&Number.isFinite(Number(v));
 function fail():never{throw new Error("Ongeldige observatiegegevens");}
 
 export function parseLiteSnapshot(value:unknown,now=Date.now()):LiteSnapshot {
