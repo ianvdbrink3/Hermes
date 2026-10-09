@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { fetchShadowSnapshot, parseShadowSnapshot } from "./g11-shadow";
+import { fetchShadowSnapshot, parseShadowSnapshot, shadowFeedFailure } from "./g11-shadow";
 const valid = () => ({ schema_version: 1, generated_at: new Date().toISOString(), read_only: true, live_orders_enabled: false, latest: {}, history: [], metrics: {}, safety: {kill_switch:false,pending_recovery:false,journal_verified:true,incomplete_decisions:false,reconciled:false}, research: [], health: {}, research_health: {}, daemon: {}, risk_counts: {blocks:0,resizes:0} });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 describe("shadow boundary", () => {
@@ -42,3 +42,14 @@ it.skipIf(process.env.G11_VERIFY_REMOTE !== "true")("production server connectio
   expect(result.safety.journal_verified).toBe(true);
   expect(result.history.length).toBeGreaterThan(0);
 }, 15000);
+
+describe("read-only feed error diagnosis",()=>{
+  it.each([401,404,503])("keeps upstream HTTP %s without exposing response contents",async status=>{
+    vi.stubEnv("HERMES_AUTONOMY_STATE_URL","https://example.invalid/autonomy-state/snapshot");
+    vi.stubEnv("HERMES_AUTONOMY_STATE_API_KEY","unit-test-placeholder");
+    vi.stubGlobal("fetch",vi.fn().mockResolvedValue({ok:false,status,json:async()=>({error:"private-upstream-content"})}));
+    await expect(fetchShadowSnapshot()).rejects.toThrow("Shadow feed HTTP "+status);
+  });
+});
+
+it("never exposes unknown internal error details to the browser",()=>{ expect(shadowFeedFailure(new Error("private-upstream-content unit-test-placeholder"))).not.toMatch(/private-upstream-content|unit-test-placeholder/); expect(shadowFeedFailure(new Error("Shadow feed HTTP 404"))).toContain("HTTP 404"); });

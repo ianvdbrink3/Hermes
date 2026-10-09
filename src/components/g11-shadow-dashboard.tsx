@@ -37,7 +37,11 @@ export function G11ShadowDashboard() {
     setBusy(true);
     try {
       const response = await fetch("/api/os/g11-shadow", { cache: "no-store", signal });
-      if (!response.ok) throw new Error("De observatiegegevens zijn niet bereikbaar. De actuele veiligheidsstatus is onbekend.");
+      if (!response.ok) {
+        const fallback = "De observatiegegevens zijn niet bereikbaar. De actuele veiligheidsstatus is onbekend.";
+        const failure = await response.json().catch(() => null);
+        throw new Error(typeof failure?.error === "string" && failure.error.length <= 250 ? failure.error : fallback);
+      }
       const snapshot = parseG11Snapshot(await response.json());
       if (sequence !== requestSequence.current || signal?.aborted) return;
       setData(snapshot); setError("");

@@ -47,6 +47,15 @@ export async function fetchShadowSnapshot(): Promise<ShadowSnapshot | LiteSnapsh
   if (!url.pathname.endsWith("/g11-shadow")) throw new Error("Invalid state feed path");
   url.search = ""; url.hash = "";
   const response = await fetch(url, { headers: { Authorization: `Bearer ${key}`, Accept: "application/json" }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(8_000) });
-  if (!response.ok) throw new Error("Shadow feed unavailable");
+  if (!response.ok) throw new Error(`Shadow feed HTTP ${response.status}`);
   return parseG11Snapshot(await response.json());
+}
+
+export function shadowFeedFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  const status = /^Shadow feed HTTP ([1-5][0-9]{2})$/.exec(message)?.[1];
+  if (status) return `De gegevensserver antwoordt met HTTP ${status}. De actuele veiligheidsstatus is onbekend.`;
+  if (message === "Shadow feed unavailable") return "De gegevensverbinding is niet ingesteld. De actuele veiligheidsstatus is onbekend.";
+  if (["Invalid shadow snapshot", "Ongeldige observatiegegevens"].includes(message)) return "De ontvangen observatiegegevens zijn ongeldig. De actuele veiligheidsstatus is onbekend.";
+  return "De observatiegegevens zijn niet bereikbaar. De actuele veiligheidsstatus is onbekend.";
 }
