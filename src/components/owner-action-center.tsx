@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useDialogFocus } from "./use-dialog-focus";
 import styles from "./owner-action-center.module.css";
 
 type OsSnapshotResponse = {
@@ -79,16 +80,16 @@ function explainAction(gate: string, blockers: string): ActionExplanation {
   if (source.includes("permission") || source.includes("approval") || source.includes("human")) {
     return {
       title: "Hermes wacht op jouw toestemming",
-      instruction: gate || "Bekijk de technische omschrijving hieronder om te zien welke expliciete toestemming Hermes nodig heeft.",
-      reason: blockers || "Deze stap valt buiten de acties die Hermes zelfstandig mag uitvoeren.",
+      instruction: "Bekijk de volledige oorspronkelijke toelichting en bespreek de benodigde keuze met Hermes.",
+      reason: "Deze stap valt buiten de acties die Hermes zelfstandig mag uitvoeren. De oorspronkelijke toelichting staat bij Uitgebreide analyses.",
       consequence: "Alleen dit geblokkeerde onderdeel wacht; ander veilig werk mag waar mogelijk doorgaan.",
     };
   }
 
   return {
     title: "Bekijk de open menselijke blokkade",
-    instruction: gate || "Hermes heeft een menselijke beslissing nodig voordat deze specifieke stap verder kan.",
-    reason: blockers || "Hermes heeft deze stap als menselijke grens gemarkeerd.",
+    instruction: "Bekijk de volledige oorspronkelijke toelichting en bespreek de benodigde keuze met Hermes.",
+    reason: "Hermes heeft deze stap als menselijke grens gemarkeerd. De oorspronkelijke toelichting staat bij Uitgebreide analyses.",
     consequence: "Andere veilige taken kunnen doorgaan, maar deze specifieke stap blijft wachten totdat jij beslist.",
   };
 }
@@ -99,6 +100,7 @@ function validEmail(value: string) {
 
 export function OwnerActionCenter() {
   const pathname = usePathname();
+  const dialogRef = useRef<HTMLElement | null>(null);
   const [open, setOpen] = useState(false);
   const [gate, setGate] = useState("");
   const [blockers, setBlockers] = useState("");
@@ -133,78 +135,15 @@ export function OwnerActionCenter() {
     return () => window.clearInterval(timer);
   }, [load]);
 
+  useEffect(() => {
+    const openActions = () => setOpen(true);
+    window.addEventListener("hermes:open-actions", openActions);
+    return () => window.removeEventListener("hermes:open-actions", openActions);
+  }, []);
+
   const needsAction = connected && runtimeState === "NEEDS_HUMAN";
   const gitAuthorAction = isGitAuthorGate(gate, blockers);
   const explanation = useMemo(() => explainAction(gate, blockers), [gate, blockers]);
-
-  useEffect(() => {
-    if (!needsAction || pathname === "/login") return;
-
-    const cleanups: Array<() => void> = [];
-    const bound = new WeakSet<Element>();
-
-    function makeTrigger(element: HTMLElement, label: string) {
-      if (bound.has(element)) return;
-      bound.add(element);
-      const onClick = (event: Event) => {
-        event.preventDefault();
-        setOpen(true);
-      };
-      const onKey = (event: KeyboardEvent) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          setOpen(true);
-        }
-      };
-      element.setAttribute("role", "button");
-      element.setAttribute("tabindex", "0");
-      element.setAttribute("aria-label", label);
-      element.setAttribute("title", label);
-      element.style.cursor = "pointer";
-      element.addEventListener("click", onClick);
-      element.addEventListener("keydown", onKey);
-      cleanups.push(() => {
-        element.removeEventListener("click", onClick);
-        element.removeEventListener("keydown", onKey);
-      });
-    }
-
-    function bindVisibleTriggers() {
-      document.querySelectorAll("span").forEach((node) => {
-        if (node.textContent?.trim() === "Jouw actie nodig") {
-          const target = node.closest("div") as HTMLElement | null;
-          if (target) makeTrigger(target, "Bekijk wat jij moet doen");
-        }
-      });
-
-      document.querySelectorAll("article").forEach((node) => {
-        const firstLabel = node.querySelector("span")?.textContent?.trim();
-        const strong = node.querySelector("strong")?.textContent?.trim();
-        if (firstLabel === "Jouw actie" && strong === "Actie nodig") {
-          makeTrigger(node as HTMLElement, "Bekijk wat jij moet doen");
-        }
-      });
-
-      document.querySelectorAll("p").forEach((node) => {
-        if (node.textContent?.includes("Bekijk de details")) {
-          node.textContent = "Er is een blokkade. Klik hier om te zien wat jij moet doen →";
-          node.style.color = "#ff9aa1";
-          node.style.textDecoration = "underline";
-          node.style.textUnderlineOffset = "3px";
-          makeTrigger(node as HTMLElement, "Bekijk de open actie");
-        }
-      });
-    }
-
-    bindVisibleTriggers();
-    const observer = new MutationObserver(bindVisibleTriggers);
-    observer.observe(document.body, { subtree: true, childList: true });
-
-    return () => {
-      observer.disconnect();
-      cleanups.forEach((cleanup) => cleanup());
-    };
-  }, [needsAction, pathname]);
 
   async function resolveGitAuthor(mode: "verify" | "set") {
     if (resolving) return;
@@ -272,6 +211,8 @@ export function OwnerActionCenter() {
     }
   }
 
+  useDialogFocus(open && needsAction && pathname !== "/login", dialogRef, () => setOpen(false));
+
   if (pathname === "/login" || !needsAction) return null;
 
   return <>
@@ -280,7 +221,7 @@ export function OwnerActionCenter() {
     </button>
 
     {open && <div className={styles.backdrop} onMouseDown={() => setOpen(false)}>
-      <aside className={styles.panel} onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="owner-action-title">
+      <aside ref={dialogRef} tabIndex={-1} className={styles.panel} onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="owner-action-title">
         <header className={styles.header}>
           <div><span>Jouw actie</span><h2 id="owner-action-title">{explanation.title}</h2></div>
           <button onClick={() => setOpen(false)} aria-label="Sluiten">×</button>
@@ -321,12 +262,7 @@ export function OwnerActionCenter() {
 
           {explanation.note && <div className={styles.safetyNote}>✓ {explanation.note}</div>}
 
-          <details className={styles.details}>
-            <summary>Technische bron bekijken</summary>
-            <div><strong>Open menselijke gate</strong><pre>{gate || "Geen brontekst"}</pre></div>
-            <div><strong>Blokkades</strong><pre>{blockers || "Geen aparte blokkadetekst"}</pre></div>
-            <div><strong>Huidig onderzoek</strong><pre>{objective || "Geen objective geladen"}</pre></div>
-          </details>
+          <Link href="/analyses#systeem" onClick={() => setOpen(false)}>Lees de volledige oorspronkelijke toelichting →</Link>
         </div>
 
         <footer className={styles.footer}>

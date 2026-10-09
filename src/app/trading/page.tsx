@@ -1,5 +1,2 @@
-import { SimpleHermes } from "@/components/simple-hermes";
-
-export default function TradingPage() {
-  return <SimpleHermes page="trading" />;
-}
+import { G11ShadowDashboard } from "@/components/g11-shadow-dashboard";
+export default function TradingPage() { return <G11ShadowDashboard />; }

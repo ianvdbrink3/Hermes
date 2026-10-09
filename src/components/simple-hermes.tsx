@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HermesShell, type HermesTone } from "./hermes-shell";
+import { ownerActionKnown, plainStatus, runtimeExplanation, activityLabel } from "@/lib/os/presentation";
+import { ShadowOverview } from "./shadow-overview";
 import styles from "./simple-hermes.module.css";
 
-type Page = "overzicht" | "onderzoek" | "trading" | "instellingen";
+type Page = "overzicht" | "trading" | "instellingen";
 type RecordLike = Record<string, unknown>;
-type ChatMessage = { role: "user" | "hermes" | "system"; text: string };
-type Run = { run_id?: string; status?: string; output?: string; error?: string; policy?: { code?: string }; invocationPolicy?: { code?: string } };
 
 type Snapshot = {
   runtime?: { state?: string; reason?: string | null };
@@ -23,8 +23,21 @@ type Snapshot = {
     needsHuman?: unknown;
     lastCompletedWork?: unknown;
   };
-  provider?: { model?: string; state?: string; retryNotBeforeUtc?: string | null; cooldownActive?: boolean };
-  scheduler?: { found?: boolean; active?: boolean; name?: string | null; nextRun?: unknown; lastRun?: unknown; lastStatus?: unknown };
+  provider?: {
+    name?: string;
+    model?: string;
+    state?: string;
+    retryNotBeforeUtc?: string | null;
+    cooldownActive?: boolean;
+  };
+  scheduler?: {
+    found?: boolean;
+    active?: boolean;
+    name?: string | null;
+    nextRun?: unknown;
+    lastRun?: unknown;
+    lastStatus?: unknown;
+  };
   compute?: {
     available?: boolean;
     runs24h?: number | null;
@@ -42,7 +55,13 @@ type Snapshot = {
     research?: { configured?: boolean; state?: string };
     builder?: { configured?: boolean; state?: string };
   };
-  telemetry?: { stateFeed?: boolean; scheduler?: boolean; compute?: boolean; exactProviderCooldown?: boolean; runtimeEvents?: boolean };
+  telemetry?: {
+    stateFeed?: boolean;
+    scheduler?: boolean;
+    compute?: boolean;
+    exactProviderCooldown?: boolean;
+    runtimeEvents?: boolean;
+  };
   events?: RecordLike[];
   sourceSnapshot?: RecordLike;
   generatedAt?: string;
@@ -70,19 +89,22 @@ function clean(value: unknown) {
   return rawText(value, "").replace(/\s+/g, " ").trim();
 }
 
-function short(value: unknown, max = 210) {
+function short(value: unknown, max = 190) {
   const text = clean(value);
   if (!text) return "—";
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+  return text.length > max ? text.slice(0, max - 1) + "…" : text;
 }
 
 function formatDate(value: unknown, withDate = false) {
   if (!value) return "—";
   const date = new Date(typeof value === "number" && value < 100_000_000_000 ? value * 1000 : String(value));
   if (Number.isNaN(date.getTime())) return rawText(value);
-  return new Intl.DateTimeFormat("nl-NL", withDate
-    ? { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }
-    : { hour: "2-digit", minute: "2-digit" }).format(date);
+  return new Intl.DateTimeFormat(
+    "nl-NL",
+    withDate
+      ? { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }
+      : { hour: "2-digit", minute: "2-digit" },
+  ).format(date);
 }
 
 function formatNumber(value: number | null | undefined) {
@@ -91,7 +113,7 @@ function formatNumber(value: number | null | undefined) {
 
 function ratio(value: number | null | undefined, max: number | null | undefined) {
   if (value === null || value === undefined || max === null || max === undefined) return "—";
-  return `${formatNumber(value)} / ${formatNumber(max)}`;
+  return formatNumber(value) + " / " + formatNumber(max);
 }
 
 function clearHumanGate(value: unknown) {
@@ -106,77 +128,49 @@ function stateTone(state?: string): HermesTone {
   return "muted";
 }
 
-function stateLabel(state?: string) {
-  const labels: Record<string, string> = {
-    READY: "Klaar voor onderzoek",
-    RUNNING: "Onderzoek draait",
-    WAITING_PROVIDER: "Wacht op modelprovider",
-    WAITING_PROVIDER_UNVERIFIED: "Providerstatus onzeker",
-    WAITING_BUDGET: "Wacht op AI-budget",
-    WAITING_SPACING: "Wacht op volgende venster",
-    NEEDS_HUMAN: "Jouw actie nodig",
-    BLOCKED_UNVERIFIED_USAGE: "Geblokkeerd: usage onzeker",
-    BLOCKED_INTEGRITY: "Geblokkeerd: verificatie",
-    IDLE: "Router niet actief",
-    DEGRADED: "Gedeeltelijk beschikbaar",
-    OFFLINE: "Runtime offline",
-  };
-  return state ? labels[state] || state : "Status laden…";
-}
-
-function overviewTitle(snapshot: Snapshot | null) {
-  const state = snapshot?.runtime?.state;
-  if (state === "WAITING_PROVIDER") return "Hermes wacht veilig op nieuwe modelcapaciteit.";
-  if (state === "WAITING_PROVIDER_UNVERIFIED") return "Hermes ziet een providerprobleem en wacht op betrouwbare state.";
-  if (state === "WAITING_BUDGET") return "Hermes stopt tijdelijk omdat het AI-budget is bereikt.";
-  if (state === "NEEDS_HUMAN") return "Hermes heeft jouw beslissing nodig voordat hij verder kan.";
-  if (state === "BLOCKED_UNVERIFIED_USAGE") return "Hermes is fail-closed gestopt omdat AI-gebruik niet verifieerbaar is.";
-  if (state === "BLOCKED_INTEGRITY") return "Hermes is gestopt bij een integriteitscontrole.";
-  if (state === "RUNNING") return "Hermes voert nu een gecontroleerde researchreview uit.";
-  if (state === "OFFLINE") return "De research-runtime is momenteel niet bereikbaar.";
-  return "Hermes bewaakt en verbetert het investeringssysteem binnen vaste grenzen.";
-}
+function stateLabel(state?: string) { return state ? plainStatus(state) : "Status laden…"; }
 
 function connectionLabel(state?: string) {
   if (state === "connected") return "Verbonden";
-  if (state === "degraded") return "Beperkt beschikbaar";
+  if (state === "degraded") return "Beperkt";
   if (state === "not_configured") return "Niet ingesteld";
-  if (state === "auth_error") return "Toegang mislukt";
+  if (state === "auth_error") return "Authenticatie mislukt";
   if (state === "offline") return "Offline";
   return "Onbekend";
 }
 
-function experimentTitle(item: RecordLike) {
-  const source = `${clean(item.hypothesis)} ${clean(item.result)} ${clean(item.experiment_id)}`.toLowerCase();
-  if (source.includes("sandbox") || source.includes("bwrap")) return "Veilige werkomgeving gecontroleerd";
-  if (source.includes("quality") || source.includes("pytest") || source.includes("verification")) return "Technische controles uitgevoerd";
-  if (source.includes("robust") || source.includes("backtest")) return "Onderzoeksresultaat opnieuw getest";
-  if (source.includes("data")) return "Datakwaliteit onderzocht";
-  return "Onderzoekscyclus afgerond";
+function eventTitle(item: RecordLike) { return activityLabel(item.event || item.type || item.state); }
+
+function eventBody() { return "De volledige toelichting staat bij Uitgebreide analyses, onder Ontwikkeling en systeem."; }
+
+
+function missionTitle(snapshot: Snapshot | null) {
+  return snapshot?.mission?.fixture || short(snapshot?.mission?.taskId, 44) || "Geen actieve mission";
 }
 
+function runtimeMessage(snapshot: Snapshot | null) { return runtimeExplanation(snapshot?.runtime?.state); }
+
 export function SimpleHermes({ page }: { page: Page }) {
+  const requestSequence = useRef(0);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatInput, setChatInput] = useState("");
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    { role: "hermes", text: "Vraag mij iets over het onderzoek of het systeem. Elke handmatige modelrun wordt eerst door de centrale runtimepolicy gecontroleerd. Live trading blijft geblokkeerd." },
-  ]);
-  const [chatBusy, setChatBusy] = useState(false);
 
   const refresh = useCallback(async () => {
+    const sequence = ++requestSequence.current;
     setLoading(true);
     try {
       const response = await fetch("/api/os/snapshot", { cache: "no-store" });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setSnapshot((await response.json()) as Snapshot);
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const next = (await response.json()) as Snapshot;
+      if (sequence !== requestSequence.current) return;
+      setSnapshot(next);
       setLastRefresh(new Date());
     } catch {
+      if (sequence !== requestSequence.current) return;
       setSnapshot({ runtime: { state: "OFFLINE", reason: "De centrale OS-state kon niet worden geladen." } });
     } finally {
-      setLoading(false);
+      if (sequence === requestSequence.current) setLoading(false);
     }
   }, []);
 
@@ -188,139 +182,272 @@ export function SimpleHermes({ page }: { page: Page }) {
     const timer = window.setInterval(tick, 30_000);
     document.addEventListener("visibilitychange", tick);
     return () => {
+      requestSequence.current++;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", tick);
     };
   }, [refresh]);
 
   const source = record(snapshot?.sourceSnapshot);
-  const experiments = record(source.experiments);
-  const backlog = record(source.backlog);
-  const quality = record(source.quality);
-  const git = record(source.git);
-  const experimentEntries = rows(experiments.recent || experiments.entries).slice(0, 6);
+  const events = (snapshot?.events || []).slice(0, 6);
   const decisions = rows(source.decisions).slice(0, 5);
-  const backlogEntries = rows(backlog.entries).slice(0, 6);
+  const actionKnown = ownerActionKnown(snapshot);
   const needsYou = !clearHumanGate(snapshot?.mission?.needsHuman);
   const tone = stateTone(snapshot?.runtime?.state);
   const status = stateLabel(snapshot?.runtime?.state);
   const compute = snapshot?.compute;
 
-  const summary = useMemo(() => {
-    const expCounts = record(experiments.counts);
-    return {
-      pass: Number(expCounts.pass || expCounts.PASS || 0),
-      reject: Number(expCounts.reject || expCounts.REJECT || 0),
-      inconclusive: Number(expCounts.inconclusive || expCounts.INCONCLUSIVE || 0),
-    };
-  }, [experiments]);
-
-  async function askHermes(event: FormEvent) {
-    event.preventDefault();
-    const input = chatInput.trim();
-    if (!input || chatBusy) return;
-    setChatMessages((items) => [...items, { role: "user", text: input }]);
-    setChatInput("");
-    setChatBusy(true);
-    try {
-      const response = await fetch("/api/brain/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input, environment: "research", session_id: "simple-hermes-owner", source: "manual_chat" }),
-      });
-      const started = (await response.json()) as Run;
-      if (!response.ok || started.error || !started.run_id) throw new Error(started.error || `Hermes-run geblokkeerd (${started.policy?.code || response.status}).`);
-      let run = started;
-      for (let attempt = 0; attempt < 90 && !["completed", "failed", "cancelled", "stopped"].includes(String(run.status)); attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 1800));
-        const poll = await fetch(`/api/brain/runs/${encodeURIComponent(started.run_id)}?environment=research`, { cache: "no-store" });
-        run = (await poll.json()) as Run;
-      }
-      if (run.status === "completed") {
-        setChatMessages((items) => [...items, { role: "hermes", text: run.output || "Klaar. Hermes heeft deze stap afgerond." }]);
-      } else {
-        setChatMessages((items) => [...items, { role: "system", text: run.error || "Deze Hermes-run is niet succesvol afgerond." }]);
-      }
-      void refresh();
-    } catch (error) {
-      setChatMessages((items) => [...items, { role: "system", text: error instanceof Error ? error.message : "Hermes is tijdelijk niet bereikbaar." }]);
-    } finally {
-      setChatBusy(false);
+  const providerState = useMemo(() => {
+    if (snapshot?.provider?.cooldownActive) {
+      return {
+        label: "Cooldown",
+        detail: snapshot.provider.retryNotBeforeUtc
+          ? "Retry na " + formatDate(snapshot.provider.retryNotBeforeUtc, true)
+          : "Retrytijd niet bevestigd",
+        tone: "warn",
+      };
     }
-  }
+    if (snapshot?.provider?.state) {
+      return { label: snapshot.provider.state, detail: snapshot.provider.model || "Model onbekend", tone: "neutral" };
+    }
+    return { label: "Onbekend", detail: "Geen providerstatus beschikbaar", tone: "neutral" };
+  }, [snapshot]);
 
   function Overview() {
-    const eventEntries = snapshot?.events || [];
-    return <>
-      <section className={`${styles.hero} ${styles[`hero_${tone}`]}`}>
-        <div className={styles.heroState}><span>{status}</span><span>{snapshot?.provider?.cooldownActive ? `Retry ${formatDate(snapshot.provider.retryNotBeforeUtc, true)}` : snapshot?.scheduler?.active ? `Volgende controle ${formatDate(snapshot.scheduler.nextRun, true)}` : "Geen actieve schedulertick"}</span></div>
-        <h1>{overviewTitle(snapshot)}</h1>
-        <p>{snapshot?.runtime?.reason || "Eén centrale runtime-state bepaalt wat alle OS-pagina's tonen. Geen oude heartbeat en geen geschatte providerstatus."}</p>
-        <div className={styles.heroActions}><Link href="/onderzoek" className={styles.primaryLink}>Open onderzoek</Link><button onClick={() => setChatOpen(true)} className={styles.secondaryButton}>Vraag Hermes</button></div>
-      </section>
+    return (
+      <>
+        <header className={styles.pageHeader}><span className={styles.eyebrow}>Jouw Hermes</span><h1>Wat gebeurt er vandaag?</h1><p>Volg de marktobservaties, bekijk wat Hermes onderzoekt en zie of jij iets moet doen.</p></header>
+        {actionKnown && needsYou && <section className={styles.priorityAttention}><h2>Hermes heeft jouw hulp nodig</h2><p>Een onderzoeksstap wacht op jouw keuze. Open Jouw acties om te zien wat je kunt doen.</p><Link href="/beslissingen">Bekijk jouw actie →</Link></section>}
+        <ShadowOverview />
+        <section className={styles.missionHero}>
+          <div className={styles.missionTop}>
+            <div>
+              <span className={styles.eyebrow}>Ontwikkeling van Hermes</span>
+              <div className={styles.stateLine}>
+                <i className={styles["tone_" + tone]} />
+                <strong>{status}</strong>
+              </div>
+            </div>
+            <span className={styles.refreshStamp}>
+              {lastRefresh ? "Bijgewerkt " + formatDate(lastRefresh.toISOString()) : "State laden…"}
+            </span>
+          </div>
 
-      <section className={styles.dashboardGrid}>
-        <article><span>Huidige mission</span><strong>{snapshot?.mission?.fixture || "—"}</strong><p>{short(snapshot?.mission?.taskId, 120)}</p></article>
-        <article><span>Laatste resultaat</span><strong>{snapshot?.mission?.lastCompletedWork ? "Afgerond" : "—"}</strong><p>{short(snapshot?.mission?.lastCompletedWork, 140)}</p></article>
-        <article><span>AI vandaag</span><strong>{ratio(compute?.promptTokens24h, compute?.maxPromptTokens24h)}</strong><p>{compute?.available ? `${ratio(compute?.runs24h, compute?.maxRuns24h)} runs` : "Compute-telemetrie nog niet in statefeed"}</p></article>
-        <article className={needsYou ? styles.actionNeeded : styles.actionClear}><span>Jouw actie</span><strong>{needsYou ? "Actie nodig" : "Niets nodig"}</strong><p>{needsYou ? short(snapshot?.mission?.needsHuman, 140) : "Hermes kan binnen de ingestelde grenzen zelfstandig verder."}</p></article>
-        <article><span>Execution</span><strong className={styles.locked}>Geblokkeerd</strong><p>Browseractivatie van trading is hard uitgeschakeld.</p></article>
-      </section>
+          <div className={styles.missionCopy}>
+            <h2>{status}</h2>
+            <Link href="/analyses#systeem">Lees de volledige onderzoeksopdracht →</Link>
+            <p>{runtimeMessage(snapshot)}</p>
+          </div>
 
-      <section className={styles.section}>
-        <div className={styles.sectionHead}><div><span>Wat is veranderd</span><h2>Recente activiteit</h2></div><Link href="/onderzoek">Volledig onderzoek →</Link></div>
-        <div className={styles.activityList}>
-          {eventEntries.length ? eventEntries.slice(0, 5).map((item, index) => <article key={index}><div className={styles.activityIcon}>•</div><div><strong>{short(item.title || item.event || item.type, 130)}</strong><p>{short(item.message || item.reason || item.result, 170)}</p></div><span>{formatDate(item.timestamp || item.ts, true)}</span></article>) : experimentEntries.length ? experimentEntries.slice(0, 4).map((item, index) => <article key={`${rawText(item.experiment_id)}-${index}`}><div className={styles.activityIcon}>✓</div><div><strong>{experimentTitle(item)}</strong><p>{short(item.result || item.hypothesis, 170)}</p></div><span>{formatDate(item.timestamp, true)}</span></article>) : <div className={styles.empty}>Nog geen recente events of experimenten in de statefeed.</div>}
-        </div>
-      </section>
+          <div className={styles.nextStep}>
+            <span>Volgende stap</span>
+            <strong>{snapshot?.mission?.next ? "De geplande vervolgstap staat in de uitgebreide onderzoeksopdracht." : "Nog niet bevestigd"}</strong>
+          </div>
 
-      <section className={styles.statsBand}>
-        <div><strong>{summary.pass + summary.reject + summary.inconclusive}</strong><span>onderzoeken vastgelegd</span></div>
-        <div><strong>{summary.pass}</strong><span>geslaagd</span></div>
-        <div><strong>{formatNumber(compute?.voidedReservations)}</strong><span>voided reservations</span></div>
-        <div><strong>{needsYou ? 1 : 0}</strong><span>acties voor jou</span></div>
-      </section>
+          <div className={styles.heroActions}>
+            <Link href="/onderzoek" className={styles.primaryButton}>Bekijk het onderzoek →</Link>
+            <button className={styles.secondaryButton} onClick={() => window.dispatchEvent(new Event("hermes:open-chat"))}>Praat met Hermes</button>
+          </div>
+        </section>
 
-      <section className={styles.safetyBand}><div><span>Veiligheid</span><h2>Research mag leren. De browser mag geen live kapitaal activeren.</h2></div><div className={styles.safetyChecks}><span>✓ Browser execution hard locked</span><span>✓ Production modelruns inspect-only</span><span>✓ Researchcalls door runtimepolicy</span><span>✓ Onbekende state wordt niet ingevuld</span></div></section>
-    </>;
+        <details className={styles.rawState}><summary>Jouw acties en operationele details</summary><section className={styles.priorityGrid}>
+          <article className={needsYou ? styles.priorityAttention : styles.priorityGood}>
+            <div className={styles.cardLabel}>Jouw actie</div>
+            <strong>{!actionKnown ? "Nog niet bevestigd" : needsYou ? "Beslissing nodig" : "Geen actie nodig"}</strong>
+            <p>{!actionKnown ? "De actuele actie-status is niet beschikbaar." : needsYou ? "Bekijk Jouw acties voor de benodigde keuze." : "Hermes kan binnen de ingestelde grenzen zelfstandig verder."}</p>
+            {needsYou ? <Link href="/beslissingen">Open beslissing →</Link> : null}
+          </article>
+
+          <article>
+            <div className={styles.cardLabel}>Provider</div>
+            <strong>{providerState.label}</strong>
+            <p>{providerState.detail}</p>
+          </article>
+
+          <article>
+            <div className={styles.cardLabel}>Modelgebruik · 24 uur</div>
+            <strong>{compute?.available ? ratio(compute.runs24h, compute.maxRuns24h) : "Niet beschikbaar"}</strong>
+            <p>{compute?.available ? ratio(compute.totalTokens24h, compute.maxTotalTokens24h) + " tokens" : "Compute-telemetrie ontbreekt in de statefeed."}</p>
+          </article>
+
+          <article>
+            <div className={styles.cardLabel}>Safety</div>
+            <strong className={styles.locked}>Uitvoering beschermd</strong>
+            <p>Dit scherm kan geen transacties uitvoeren.</p>
+          </article>
+        </section>
+
+        <section className={styles.sectionGrid}>
+          <div className={styles.panel}>
+            <header className={styles.panelHead}>
+              <div><span>Nu</span><h2>Researchstatus</h2></div>
+              <Link href="/onderzoek">Open volledig →</Link>
+            </header>
+            <dl className={styles.statusRows}>
+              <div><dt>Huidig werk</dt><dd>{missionTitle(snapshot)}</dd></div>
+              <div><dt>In uitvoering</dt><dd><Link href="/analyses#systeem">Bekijk de vastgelegde toelichting</Link></dd></div>
+              <div><dt>Blokkades</dt><dd><Link href="/analyses#systeem">Bekijk de vastgelegde toelichting</Link></dd></div>
+              <div><dt>Laatste werk</dt><dd><Link href="/analyses#systeem">Bekijk de vastgelegde toelichting</Link></dd></div>
+            </dl>
+          </div>
+
+          <div className={styles.panel}>
+            <header className={styles.panelHead}>
+              <div><span>Runtime</span><h2>Systeemgezondheid</h2></div>
+              <Link href="/instellingen/systeem">Diagnostiek →</Link>
+            </header>
+            <div className={styles.healthRows}>
+              <div><span>Statefeed</span><b>{snapshot?.telemetry?.stateFeed ? "Online" : "Niet bevestigd"}</b></div>
+              <div><span>Scheduler</span><b>{snapshot?.scheduler?.active === true ? "Actief" : snapshot?.scheduler?.active === false ? "Niet actief" : "Onbekend"}</b></div>
+              <div><span>Gereserveerde runs</span><b>{formatNumber(compute?.openReservations)}</b></div>
+              <div><span>Omgeving</span><b>{snapshot?.deployment?.environment || "—"}</b></div>
+            </div>
+          </div>
+        </section>
+
+        </details>
+        <section className={styles.activitySection}>
+          <header className={styles.panelHead}>
+            <div><span>Activiteit</span><h2>Recente activiteit</h2></div>
+          </header>
+          <div className={styles.timeline}>
+            {events.length ? events.map((item, index) => (
+              <article key={index}>
+                <i />
+                <div>
+                  <strong>{eventTitle(item)}</strong>
+                  <p>{eventBody()}</p>
+                </div>
+                <time>{formatDate(item.timestamp || item.ts, true)}</time>
+              </article>
+            )) : (
+              <div className={styles.empty}>Nog geen runtime-events in de actuele statefeed.</div>
+            )}
+          </div>
+        </section>
+      </>
+    );
   }
 
   function Trading() {
-    const productionConnected = snapshot?.connections?.production?.state === "connected";
-    return <>
-      <section className={styles.pageIntro}><span>Trading</span><h1>Markt, posities en risico</h1><p>Deze pagina blijft bewust rustig totdat gecontroleerde broker- en marktdata beschikbaar zijn. Geen demo-data, geen verzonnen prijzen en geen browsergestuurde execution.</p></section>
-      <section className={styles.tradingState}>
-        <article><span>Production gateway</span><strong>{productionConnected ? "Verbonden" : connectionLabel(snapshot?.connections?.production?.state)}</strong><p>Alleen inspectie vanuit het OS.</p></article>
-        <article><span>Live orders</span><strong className={styles.locked}>Hard geblokkeerd</strong><p>De `/api/risk/trading` browserroute kan trading niet meer activeren.</p></article>
-        <article><span>Marktdata</span><strong>Nog niet zichtbaar</strong><p>Alleen gevalideerde feeds worden hier later getoond.</p></article>
-        <article><span>Runtime safety</span><strong>{rawText(snapshot?.safety?.execution, "Niet gerapporteerd")}</strong><p>De backend blijft de autoriteit voor execution-state.</p></article>
-      </section>
-      <section className={styles.tradingExplain}><div><span>Wat Hermes nu wél kan</span><ul><li>Strategieën en hypotheses onderzoeken</li><li>Historische tests en robuustheidschecks uitvoeren</li><li>Risico's en fouten analyseren</li><li>Verbeteringen voorstellen met bewijs</li></ul></div><div><span>Wat Hermes nu niet kan</span><ul><li>Via dit OS live kapitaal activeren</li><li>Brokerbinding zelfstandig aanzetten</li><li>Risicolimieten versoepelen</li><li>Ontbrekende marktdata invullen</li></ul></div></section>
-    </>;
+    const production = snapshot?.connections?.production;
+    return (
+      <>
+        <section className={styles.pageHeader}>
+          <span className={styles.eyebrow}>Trading</span>
+          <h1>Execution blijft dicht tot de infrastructuur er klaar voor is.</h1>
+          <p>Deze pagina toont alleen geverifieerde readiness. Er worden geen demo-posities, prijzen of fictieve portfolio-data weergegeven.</p>
+        </section>
+
+        <section className={styles.readinessPanel}>
+          <div className={styles.readinessTitle}>
+            <div>
+              <span>Live execution</span>
+              <strong className={styles.locked}>LOCKED</strong>
+            </div>
+            <p>Browsergestuurde orderactivatie blijft hard uitgeschakeld.</p>
+          </div>
+          <div className={styles.checklist}>
+            <div><i className={styles.checkGood}>✓</i><span><strong>Research runtime</strong><small>Onderzoek en validatie kunnen draaien zonder execution.</small></span></div>
+            <div><i className={styles.checkGood}>✓</i><span><strong>Safety boundary</strong><small>De OS kan geen live kapitaal activeren.</small></span></div>
+            <div><i className={production?.state === "connected" ? styles.checkGood : styles.checkMuted}>{production?.state === "connected" ? "✓" : "○"}</i><span><strong>Production gateway</strong><small>{connectionLabel(production?.state)}</small></span></div>
+            <div><i className={styles.checkMuted}>○</i><span><strong>Broker integration</strong><small>Niet vanuit deze browser geactiveerd.</small></span></div>
+            <div><i className={styles.checkMuted}>○</i><span><strong>Paper approval</strong><small>Expliciete menselijke toestemming vereist.</small></span></div>
+            <div><i className={styles.checkMuted}>○</i><span><strong>Live approval</strong><small>Expliciete menselijke toestemming vereist.</small></span></div>
+          </div>
+        </section>
+
+        <section className={styles.sectionGrid}>
+          <div className={styles.panel}>
+            <header className={styles.panelHead}><div><span>Wat Hermes kan</span><h2>Research</h2></div></header>
+            <ul className={styles.simpleList}>
+              <li>Hypotheses en strategieën onderzoeken</li>
+              <li>Historische tests en robuustheidschecks beoordelen</li>
+              <li>Risico's, failure modes en evidence analyseren</li>
+            </ul>
+          </div>
+          <div className={styles.panel}>
+            <header className={styles.panelHead}><div><span>Niet geautoriseerd</span><h2>Execution</h2></div></header>
+            <ul className={styles.simpleList}>
+              <li>Geen browsergestuurde live orders</li>
+              <li>Geen zelfstandige brokerbinding</li>
+              <li>Geen versoepeling van risicolimieten</li>
+            </ul>
+          </div>
+        </section>
+      </>
+    );
   }
 
   function Settings() {
     const profiles = [
-      { label: "Production", item: snapshot?.connections?.production },
-      { label: "Research", item: snapshot?.connections?.research },
-      { label: "Builder", item: snapshot?.connections?.builder },
+      { label: "Stabiele omgeving", item: snapshot?.connections?.production },
+      { label: "Onderzoeksomgeving", item: snapshot?.connections?.research },
+      { label: "Ontwikkelomgeving", item: snapshot?.connections?.builder },
     ];
-    return <>
-      <section className={styles.pageIntro}><span>Instellingen</span><h1>Systeem, verbindingen en Hermes-ontwikkeling</h1><p>Dagelijks gebruik hoort op Overzicht en Onderzoek. Hier staan de technische controles en de geavanceerde Brain Studio.</p></section>
-      <section className={styles.settingsGroup}><div className={styles.sectionHead}><div><span>Verbindingen</span><h2>Actuele profielen</h2></div><button onClick={() => void refresh()} disabled={loading}>{loading ? "Controleren…" : "Opnieuw controleren"}</button></div><div className={styles.connectionList}>{profiles.map(({ label, item }) => <article key={label}><div><strong>{label}</strong><span>{connectionLabel(item?.state)}</span></div><small>{item?.configured ? "Geconfigureerd" : "Niet geconfigureerd"}</small></article>)}</div></section>
-      <section className={styles.settingsGroup}><div className={styles.sectionHead}><div><span>Automatisering</span><h2>Research Review Router</h2></div></div><div className={styles.settingRows}><article><div><strong>Status</strong><span>Alleen de nieuwe Research Review Router telt als scheduler.</span></div><b className={snapshot?.scheduler?.active ? styles.okText : styles.warnText}>{snapshot?.scheduler?.active ? "Actief" : "Niet actief"}</b></article><article><div><strong>Volgende tick</strong><span>De eerstvolgende schedulercontrole.</span></div><b>{formatDate(snapshot?.scheduler?.nextRun, true)}</b></article><article><div><strong>Laatste browserrefresh</strong><span>Polling stopt wanneer deze tab niet zichtbaar is.</span></div><b>{lastRefresh ? formatDate(lastRefresh.toISOString(), true) : "—"}</b></article></div></section>
-      <section className={styles.settingsGroup}><div className={styles.sectionHead}><div><span>Release</span><h2>OS-versie</h2></div></div><div className={styles.settingRows}><article><div><strong>Versie</strong><span>{snapshot?.deployment?.release || "Hermes Investment OS"}</span></div><b>v{snapshot?.deployment?.version || "—"}</b></article><article><div><strong>Commit</strong><span>De deployment waarvan deze pagina draait.</span></div><b>{snapshot?.deployment?.shortCommit || "—"}</b></article></div></section>
-      <section className={styles.advancedLinks}><div><span>Systeemgezondheid</span><h3>Diagnostiek en betrouwbaarheid</h3><p>Gateways, scheduler, deployment, beveiliging en permanente operationele checks.</p><Link href="/instellingen/systeem">Open systeemgezondheid →</Link></div><div><span>Geavanceerd</span><h3>Brain Studio</h3><p>Capabilities, researchconsole en gecontroleerde improvement proposals.</p><Link href="/instellingen/geavanceerd">Open Brain Studio →</Link></div></section>
-      <details className={styles.techSummary}><summary>Ruwe OS-state</summary><pre>{JSON.stringify({ snapshot, quality, git, decisions, backlog: backlogEntries }, null, 2)}</pre></details>
-    </>;
+
+    return (
+      <>
+        <section className={styles.pageHeader}>
+          <span className={styles.eyebrow}>Instellingen</span>
+          <h1>Instellingen en hulpmiddelen</h1>
+          <p>Controleer verbindingen en automatische taken. Voor vragen over de werking kies je Systeemstatus; voor onderzoek naar verbeteringen kies je Hermes verbeteren.</p>
+        </section>
+
+        <section className={styles.settingsGrid}>
+          <div className={styles.panel}>
+            <header className={styles.panelHead}>
+              <div><span>Verbindingen</span><h2>Hermes-profielen</h2></div>
+              <button onClick={() => void refresh()} disabled={loading}>{loading ? "Controleren…" : "Ververs"}</button>
+            </header>
+            <div className={styles.connectionRows}>
+              {profiles.map(({ label, item }) => (
+                <article key={label}>
+                  <div><strong>{label}</strong><span>{connectionLabel(item?.state)}</span></div>
+                  <b>{item?.configured === true ? "Ingesteld" : item?.configured === false ? "Niet ingesteld" : "Onbekend"}</b>
+                </article>
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.panel}>
+            <header className={styles.panelHead}><div><span>Automatisering</span><h2>Automatisch onderzoek</h2></div></header>
+            <dl className={styles.statusRows}>
+              <div><dt>Status</dt><dd>{snapshot?.scheduler?.active === true ? "Actief" : snapshot?.scheduler?.active === false ? "Niet actief" : "Onbekend"}</dd></div>
+              <div><dt>Volgende tick</dt><dd>{formatDate(snapshot?.scheduler?.nextRun, true)}</dd></div>
+              <div><dt>Laatste status</dt><dd>{short(snapshot?.scheduler?.lastStatus, 150)}</dd></div>
+            </dl>
+          </div>
+
+          <Link href="/instellingen/systeem" className={styles.toolCard}>
+            <span>Systeemstatus</span>
+            <strong>Controleer de werking</strong>
+            <p>Gateways, scheduler, deployment, security en operationele checks.</p>
+            <b>Open →</b>
+          </Link>
+
+          <Link href="/instellingen/geavanceerd" className={styles.toolCard}>
+            <span>Lab</span>
+            <strong>Hermes verbeteren</strong>
+            <p>Onderzoek vaardigheden, bespreek zwakke plekken en start een verbeteronderzoek.</p>
+            <b>Open →</b>
+          </Link>
+        </section>
+
+        <p><Link href="/analyses#systeem">Uitgebreide systeemtoelichting →</Link></p>
+      </>
+    );
   }
 
   const active = page === "trading" ? "trading" : page === "instellingen" ? "instellingen" : "overzicht";
-  return <>
-    <HermesShell active={active} status={status} statusTone={tone} actions={<button onClick={() => setChatOpen(true)}>Praat met Hermes</button>}>
-      {page === "overzicht" ? <Overview /> : page === "trading" ? <Trading /> : <Settings />}
+  return (
+    <HermesShell
+      active={active}
+      status={status}
+      statusTone={tone}
+      actions={<button onClick={() => void refresh()} disabled={loading}>{loading ? "Laden…" : "Ververs"}</button>}
+    >
+      {page === "overzicht" ? Overview() : page === "trading" ? Trading() : Settings()}
     </HermesShell>
-    <button className={styles.chatFab} onClick={() => setChatOpen(true)}><span>H</span><div><strong>Praat met Hermes</strong><small>{chatBusy ? "Hermes werkt…" : "Runtimepolicy actief"}</small></div></button>
-    {chatOpen && <div className={styles.drawerBackdrop} onMouseDown={() => setChatOpen(false)}><aside className={styles.drawer} onMouseDown={(event) => event.stopPropagation()}><header><div><span>Researchomgeving</span><h2>Praat met Hermes</h2><p>Handmatige modelcalls respecteren provider- en budgetstate.</p></div><button onClick={() => setChatOpen(false)}>×</button></header><div className={styles.chatThread}>{chatMessages.map((message, index) => <article key={index} className={message.role === "user" ? styles.you : message.role === "system" ? styles.system : styles.hermes}><strong>{message.role === "user" ? "Jij" : message.role === "system" ? "Systeem" : "Hermes"}</strong><p>{message.text}</p></article>)}{chatBusy && <article className={styles.hermes}><strong>Hermes</strong><p>Runtimepolicy gecontroleerd; Hermes werkt…</p></article>}</div><form onSubmit={askHermes} className={styles.chatForm}><textarea rows={4} value={chatInput} onChange={(event) => setChatInput(event.target.value)} placeholder="Bijvoorbeeld: leg uit waarom FS-I13 wacht" /><div><small>Research only · provider/cost policy · live trading geblokkeerd</small><button disabled={chatBusy || !chatInput.trim()}>{chatBusy ? "Bezig…" : "Verstuur"}</button></div></form></aside></div>}
-  </>;
+  );
 }
