@@ -1,3 +1,4 @@
+import { parseLiteSnapshot, type LiteSnapshot } from "./g11-lite";
 export type ShadowSnapshot = {
   schema_version: 1; generated_at: string; read_only: true; live_orders_enabled: false;
   latest: Record<string, unknown>; history: Record<string, unknown>[];
@@ -26,7 +27,16 @@ export function parseShadowSnapshot(value: unknown): ShadowSnapshot {
   return v;
 }
 
-export async function fetchShadowSnapshot(): Promise<ShadowSnapshot> {
+export function parseG11Snapshot(value: unknown): ShadowSnapshot | LiteSnapshot {
+  if (value && typeof value === "object" && (value as {schema_version?:number}).schema_version === 2) {
+    const lite = parseLiteSnapshot(value);
+    if (lite.pilot) parseShadowSnapshot(lite.pilot);
+    return lite;
+  }
+  return parseShadowSnapshot(value);
+}
+
+export async function fetchShadowSnapshot(): Promise<ShadowSnapshot | LiteSnapshot> {
   const base = (process.env.HERMES_BASE_URL || "").replace(/\/$/, "");
   const state = (process.env.HERMES_AUTONOMY_STATE_URL || (base ? base + "/autonomy-state/snapshot" : "")).replace(/\/$/, "");
   const key = process.env.HERMES_AUTONOMY_STATE_API_KEY || process.env.HERMES_RESEARCH_API_KEY || "";
@@ -38,5 +48,5 @@ export async function fetchShadowSnapshot(): Promise<ShadowSnapshot> {
   url.search = ""; url.hash = "";
   const response = await fetch(url, { headers: { Authorization: `Bearer ${key}`, Accept: "application/json" }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(8_000) });
   if (!response.ok) throw new Error("Shadow feed unavailable");
-  return parseShadowSnapshot(await response.json());
+  return parseG11Snapshot(await response.json());
 }

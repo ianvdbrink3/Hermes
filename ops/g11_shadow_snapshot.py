@@ -74,7 +74,14 @@ def build_snapshot(root: Path, now: datetime) -> dict:
 def main() -> None:
     root = STOCKS / "runtime/g11-observation"
     # Optimistic consistency: never contend with the paper engine's nonblocking lock.
-    value = build_snapshot(root, datetime.now(UTC))
+    from g11_lite_snapshot import read_mode, build_lite_snapshot
+    now = datetime.now(UTC)
+    mode = read_mode(STOCKS / "runtime")
+    if mode and mode["mode"] == "multi-lite":
+        value = build_lite_snapshot(STOCKS / "runtime/g11-multi-observation", now)
+        value["pilot"] = build_snapshot(root, now)
+    else:
+        value = build_snapshot(root, now)
     print(json.dumps(value, default=str, allow_nan=False))
 
 if __name__ == "__main__":

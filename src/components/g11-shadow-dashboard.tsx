@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HermesShell } from "./hermes-shell";
 import type { ShadowSnapshot } from "@/lib/os/g11-shadow";
+import { parseG11Snapshot } from "@/lib/os/g11-shadow";
+import type { LiteSnapshot } from "@/lib/os/g11-lite";
+import { G11StockOverview } from "./g11-stock-overview";
 import { shadowCycleHealthy } from "@/lib/os/g11-shadow-status";
 import { decisionStory, finiteNumber, explainAssessment, explainRecordedThesis, riskExplanation, plainStatus, explainInvalidation } from "@/lib/os/presentation";
 import { ViewTabs } from "./view-tabs";
@@ -25,7 +28,7 @@ function bool(value: unknown) { return value === true ? "Ja" : value === false ?
 
 export function G11ShadowDashboard() {
   const [tab, setTab] = useState("Samenvatting");
-  const [data, setData] = useState<ShadowSnapshot | null>(null);
+  const [snapshot, setData] = useState<ShadowSnapshot | LiteSnapshot | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const requestSequence = useRef(0);
@@ -35,7 +38,7 @@ export function G11ShadowDashboard() {
     try {
       const response = await fetch("/api/os/g11-shadow", { cache: "no-store", signal });
       if (!response.ok) throw new Error("De observatiegegevens zijn niet bereikbaar. De actuele veiligheidsstatus is onbekend.");
-      const snapshot = await response.json() as ShadowSnapshot;
+      const snapshot = parseG11Snapshot(await response.json());
       if (sequence !== requestSequence.current || signal?.aborted) return;
       setData(snapshot); setError("");
     } catch (e) {
@@ -57,6 +60,7 @@ export function G11ShadowDashboard() {
     document.addEventListener("visibilitychange", tick);
     return () => { controller.abort(); window.clearInterval(timer); document.removeEventListener("visibilitychange", tick); };
   }, [refresh]);
+  const data = snapshot?.schema_version === 1 ? snapshot : null;
   const latest = data?.latest || {};
   const portfolio = record(latest.portfolio);
   const holdings = Array.isArray(portfolio.holdings) ? portfolio.holdings.map(record) : [];
@@ -78,6 +82,7 @@ export function G11ShadowDashboard() {
   const conditions = explainInvalidation(thesis.invalidation_conditions);
   const recorded = explainRecordedThesis(thesis.base_case);
 
+  if (snapshot?.schema_version === 2) return <G11StockOverview data={snapshot} onRefresh={() => void refresh()} busy={busy} />;
   return <HermesShell active="trading" status={status} statusTone={error || halted || data?.health.status === "FAILED" ? "bad" : healthy ? "good" : "warn"}>
     <div className={styles.dashboard}>
       <header className={styles.header}><div><span className={styles.eyebrow}>Trading · Oefenportefeuille</span><h1>Wat doet Hermes met je oefenportefeuille?</h1><p>Hermes onderzoekt echte marktdata en oefent met virtueel geld in dollars. Handel met echt geld staat uit.</p></div><button disabled={busy} onClick={() => void refresh()}>{busy ? "Laden…" : "Vernieuwen"}</button></header>

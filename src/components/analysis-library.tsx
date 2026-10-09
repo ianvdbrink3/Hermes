@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { HermesShell } from "./hermes-shell";
 import type { ShadowSnapshot } from "@/lib/os/g11-shadow";
-import { parseShadowSnapshot } from "@/lib/os/g11-shadow";
+import { parseG11Snapshot } from "@/lib/os/g11-shadow";
+import type { LiteSnapshot } from "@/lib/os/g11-lite";
+import { LiteAnalysisArchive } from "./lite-analysis-archive";
 import { analysisRoles, plainStatus } from "@/lib/os/presentation";
 import styles from "./analysis-library.module.css";
 
@@ -27,6 +29,7 @@ function OriginalThesis({ value }: { value: unknown }) {
 
 export function AnalysisLibrary() {
   const [shadow, setShadow] = useState<ShadowSnapshot | null>(null);
+  const [lite, setLite] = useState<LiteSnapshot | null>(null);
   const [runtime, setRuntime] = useState<Row | null>(null);
   const [diagnostics, setDiagnostics] = useState<Row | null>(null);
   const [capabilities, setCapabilities] = useState<Row[]>([]);
@@ -37,13 +40,15 @@ export function AnalysisLibrary() {
     const controller = new AbortController();
     async function load() {
       const reads = await Promise.allSettled([
-        fetch("/api/os/g11-shadow", { cache: "no-store", signal: controller.signal }).then(async r => { if (!r.ok) throw new Error("Marktanalyses zijn niet bereikbaar."); return parseShadowSnapshot(await r.json()); }),
+        fetch("/api/os/g11-shadow", { cache: "no-store", signal: controller.signal }).then(async r => { if (!r.ok) throw new Error("Marktanalyses zijn niet bereikbaar."); return parseG11Snapshot(await r.json()); }),
         fetch("/api/os/snapshot", { cache: "no-store", signal: controller.signal }).then(async r => { if (!r.ok) throw new Error("Ontwikkeltoelichtingen zijn niet bereikbaar."); return record(await r.json()); }),
         fetch("/api/brain/diagnostics", { cache: "no-store", signal: controller.signal }).then(async r => { if (!r.ok) throw new Error("Volledige systeemcontroles zijn niet bereikbaar."); return record(await r.json()); }),
         fetch("/api/brain/capabilities", { cache: "no-store", signal: controller.signal }).then(async r => { if (!r.ok) throw new Error("Vaardigheidsbeschrijvingen zijn niet bereikbaar."); return record(await r.json()); }),
       ]);
       if (controller.signal.aborted) return;
-      setShadow(reads[0].status === "fulfilled" ? reads[0].value as ShadowSnapshot : null);
+      const feed = reads[0].status === "fulfilled" ? reads[0].value as ShadowSnapshot | LiteSnapshot : null;
+      setLite(feed?.schema_version === 2 ? feed : null);
+      setShadow(feed?.schema_version === 2 ? feed.pilot || null : feed);
       setRuntime(reads[1].status === "fulfilled" ? reads[1].value as Row : null);
       setDiagnostics(reads[2].status === "fulfilled" ? reads[2].value as Row : null);
       const inventory = reads[3].status === "fulfilled" ? record(reads[3].value).items : null;
@@ -65,6 +70,7 @@ export function AnalysisLibrary() {
       <nav className={styles.sectionLinks} aria-label="Onderdelen van de uitgebreide analyses"><a href="#besluit">Beleggingsbesluiten</a><a href="#agents">Nieuwste agentanalyses</a><a href="#systeem">Ontwikkeling en systeem</a><a href="#vaardigheden">Vaardigheden</a></nav>
       {loading && <p role="status">Vastgelegde informatie laden…</p>}
       {errors.map(error => <p key={error} role="alert" className={styles.error}>{error}</p>)}
+      {lite && <LiteAnalysisArchive data={lite} />}
       <section id="besluit" className={styles.section}><h2>De onderbouwing van een beleggingsbesluit</h2><p>Deze teksten horen bij het gekozen besluit. Nieuwere agentanalyses staan apart hieronder.</p>
         {shadow && <><label htmlFor="analysis-decision">Kies een vastgelegd besluit</label><select id="analysis-decision" value={selected} onChange={e => setSelected(e.target.value)}><option value="">Laatste besluit · {date(shadow.latest.at)}</option>{decisions.map(row => <option key={String(row.decision_id)} value={String(row.decision_id)}>{date(row.at)} · {original(record(row.thesis).instrument_id)} · {original(row.decision_action)}</option>)}</select>
           {decision && <><div className={styles.meta}><span>{original(thesis.instrument_id)}</span><span>{date(decision.at)}</span><span>Risicocontrole: {plainStatus(decision.risk_status)}</span></div><h3>Oorspronkelijke onderbouwing</h3><OriginalThesis value={thesis.base_case} /><h3>Oorspronkelijke voorwaarden voor herbeoordeling</h3>{Array.isArray(thesis.invalidation_conditions) ? <ul className={styles.conditions}>{thesis.invalidation_conditions.map((condition, i) => <li key={i}>{original(condition)}</li>)}</ul> : <p>Niet vastgelegd</p>}<details><summary>Risicoredenen, alternatieve scenario's en gebruikte bewijsverwijzingen</summary><pre>{JSON.stringify({ decision_id: decision.decision_id, confidence: decision.decision_confidence, consensus_score: thesis.consensus_score, risk_status: decision.risk_status, risk_reasons: decision.risk_reasons, bull_case: thesis.bull_case, bear_case: thesis.bear_case, evidence_refs: thesis.evidence_refs, research_snapshot_hash: decision.research_snapshot_hash, paper_fill_assumptions: decision.paper_fill_assumptions }, null, 2)}</pre></details></>}
