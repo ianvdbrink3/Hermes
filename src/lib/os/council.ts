@@ -226,13 +226,14 @@ export type CouncilBriefing = {
   live_orders_enabled:false;
 };
 export function parseCouncilBriefing(value:unknown):CouncilBriefing {
+  const order=object(value) && Array.isArray(value.section_order) ? value.section_order : null;
+  const sections=object(value) && object(value.sections) ? value.sections : null;
   if(!object(value) || value.schema_version!==1 || value.live_orders_enabled!==false ||
      !["COMPLETE","INCOMPLETE"].includes(String(value.status)) ||
      typeof value.report_id!=="string" || !/^briefing:\d{4}-\d{2}-\d{2}$/.test(value.report_id) ||
      typeof value.report_date!=="string" || !hash.test(String(value.report_hash)) ||
-     !hash.test(String(value.revision_id)) || !Array.isArray(value.section_order) ||
-     value.section_order.length!==7 || !object(value.sections) ||
-     !briefingSectionOrder.every((key,index)=>value.section_order[index]===key && object(value.sections[key])))
+     !hash.test(String(value.revision_id)) || !order || order.length!==7 || !sections ||
+     !briefingSectionOrder.every((key,index)=>order[index]===key && object(sections[key])))
     throw new Error("Ongeldig dagrapport of ontbrekende onderbouwing");
   return value as unknown as CouncilBriefing;
 }
