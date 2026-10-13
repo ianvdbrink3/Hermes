@@ -150,6 +150,19 @@ export function CouncilDashboard({active="onderzoek"}:{active?:"onderzoek"|"trad
    </nav>
    <section className={styles.panel}>
    {tab==="report" ? <><h2>Wat heeft Hermes vandaag gedaan?</h2>
+     {data?.daily_status?<article className={styles.notice} data-testid="daily-final-status">
+       <strong>Definitieve dagstatus: {data.daily_status.status}</strong>
+       <p>Rapport: {data.daily_status.report_id} · Paperdag: {data.daily_status.paper_day}</p>
+       <p>Gescand: {data.daily_status.counts.scanned?.toLocaleString("nl-NL")??"niet geverifieerd"} ·
+       Eligible: {data.daily_status.counts.eligible?.toLocaleString("nl-NL")??"niet geverifieerd"} ·
+       Deep research: {data.daily_status.counts.deep_research?.toLocaleString("nl-NL")??"niet geverifieerd"}</p>
+       <p>Laatste run: {data.daily_status.latest_run.run_id??"niet geverifieerd"} ·
+       Retry: {data.daily_status.retry.status} ·
+       Volgende retry: {data.daily_status.retry.next_retry_at??"niet vastgesteld"}</p>
+       <p>Agents: {JSON.stringify(data.daily_status.agents)}</p>
+       {data.daily_status.blockers.length?<ul>{data.daily_status.blockers.map((item,i)=>
+        <li key={i}>{item}</li>)}</ul>:null}
+     </article>:<p>Er is nog geen definitief statusbestand voor vandaag.</p>}
      <label htmlFor="report-date">Rapportarchief</label>
      <select id="report-date" value={reportDate} onChange={e=>setReportDate(e.target.value)}>
        <option value="">Vandaag</option>{[...new Set(reports.map(r=>r.report_date).filter(Boolean))].reverse().map(date=>

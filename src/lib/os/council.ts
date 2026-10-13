@@ -6,6 +6,15 @@ export type CouncilReport = {
   summary_nl:string; blockers_nl:string[]; decisions:{case_id:string;text_nl:string}[];
   report_date?:string; report_state?:string; generated_at?:string;
 };
+export type CouncilDailyStatus = {
+  report_id:string; report_date:string; status:"COMPLETE"|"INCOMPLETE"|"FAILED";
+  paper_day:"COMPLETE"|"INCOMPLETE";
+  counts:{registered:number|null; scanned:number|null;eligible:number|null;deep_research:number|null};
+  agents:Record<string,unknown>; blockers:string[];
+  retry:{status:string;next_retry_at:string|null};
+  latest_run:{run_id:string|null;status:string|null};
+  last_successful_run:unknown;last_failed_run:unknown;
+};
 export type CouncilArchive = {
   fixture:false; case:{case_id:string;status:string;evidence_hash:string};
   evidence:{snapshot_hash:string;sources:{source_hash:string;url:string;published_at:string;retrieved_at:string;content:string;role:string}[]};
@@ -17,6 +26,7 @@ export type CouncilSnapshot = {
   research_active?: boolean;
   counts: { registered: number; scanned: number; research: number; paper_days: number; matched_registered?:number; source_candidates?:number };
   messages: CouncilMessage[];
+  daily_status?:CouncilDailyStatus|null;
   report: CouncilReport | null;
   report_history?: CouncilReport[];
   cases?:{case_id:string;instrument_id:string;generated_at:string;status:string;evidence_hash:string}[];
@@ -70,6 +80,19 @@ export function parseCouncilSnapshot(value: unknown): CouncilSnapshot {
       !strings(value.report.blockers_nl) || !Array.isArray(value.report.decisions) ||
       value.report.decisions.some(d=>!object(d) || typeof d.case_id !== "string" || typeof d.text_nl !== "string")))
     throw new Error("Ongeldig dagrapport");
+  if (value.daily_status !== undefined && value.daily_status !== null) {
+    const d=value.daily_status;
+    if (!object(d) || typeof d.report_id!=="string" ||
+        !/^daily:\d{4}-\d{2}-\d{2}$/.test(d.report_id) ||
+        !["COMPLETE","INCOMPLETE","FAILED"].includes(String(d.status)) ||
+        !["COMPLETE","INCOMPLETE"].includes(String(d.paper_day)) ||
+        !object(d.counts) ||
+        !["registered","scanned","eligible","deep_research"].every(k=>
+          d.counts[k]===null || count(d.counts[k])) ||
+        !object(d.retry) || typeof d.retry.status!=="string" ||
+        !strings(d.blockers) || !object(d.latest_run))
+      throw new Error("Ongeldige definitieve dagstatus");
+  }
   const decimal = (x:unknown): x is string => typeof x === "string" && /^-?\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?$/.test(x) && Number.isFinite(Number(x));
   if (value.portfolio !== undefined && value.portfolio !== null && (!object(value.portfolio) ||
       !decimal(value.portfolio.cash) || !decimal(value.portfolio.total_value) ||
