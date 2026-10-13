@@ -82,13 +82,14 @@ export function parseCouncilSnapshot(value: unknown): CouncilSnapshot {
     throw new Error("Ongeldig dagrapport");
   if (value.daily_status !== undefined && value.daily_status !== null) {
     const d=value.daily_status;
+    const statusCounts = object(d) && object(d.counts) ? d.counts : null;
     if (!object(d) || typeof d.report_id!=="string" ||
         !/^daily:\d{4}-\d{2}-\d{2}$/.test(d.report_id) ||
         !["COMPLETE","INCOMPLETE","FAILED"].includes(String(d.status)) ||
         !["COMPLETE","INCOMPLETE"].includes(String(d.paper_day)) ||
-        !object(d.counts) ||
+        !statusCounts ||
         !["registered","scanned","eligible","deep_research"].every(k=>
-          d.counts[k]===null || count(d.counts[k])) ||
+          statusCounts[k]===null || count(statusCounts[k])) ||
         !object(d.retry) || typeof d.retry.status!=="string" ||
         !strings(d.blockers) || !object(d.latest_run))
       throw new Error("Ongeldige definitieve dagstatus");
