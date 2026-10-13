@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCouncilSnapshot } from "./council";
+import { parseCouncilSnapshot, parseCouncilOpportunities, parseCouncilBriefing } from "./council";
 
 const valid = {
  schema_version: 3, mode: "council", fixture: false, live_orders_enabled: false,
@@ -35,3 +35,29 @@ describe("register query",()=>{
 });
 
 it("rejects unknown monetary values instead of showing zero",()=>{expect(()=>parseCouncilSnapshot({...valid,portfolio:{cash:"NaN",total_value:"100000",holdings:[]}})).toThrow();});
+
+
+it("validates source-bound screening and rejects invented opportunity values",()=>{
+ const item={listing_id:"XNAS:AAPL",symbol:"AAPL",exchange:"XNAS",
+   status:"SOURCE_PREFLIGHT_REQUIRED",screening_signal_abs_change:"2.4",
+   opportunity_score:null,research_confidence_score:"0.50",
+   research_confidence_scope:"IDENTITY_ONLY",valuation_available:false,
+   selection_reason:"Verified issuer"};
+ const payload={schema_version:1,generated_at:new Date().toISOString(),
+   source_status:"VERIFIED_DIRECTORY",
+   opportunity_score:"NOT_COMPUTED_MISSING_VALUATION",items:[item]};
+ expect(parseCouncilOpportunities(payload).items[0].symbol).toBe("AAPL");
+ expect(()=>parseCouncilOpportunities({...payload,items:[{...item,opportunity_score:98}]})).toThrow();
+});
+
+
+it("rejects a 7-part daily briefing with missing verified sections",()=>{
+ const order=["executive_summary","research_universe","top_opportunities","agent_council",
+   "portfolio_risk","performance","tomorrow_research_queue"];
+ const payload={schema_version:1,report_id:"briefing:2026-10-13",report_date:"2026-10-13",
+   status:"INCOMPLETE",report_hash:"a".repeat(64),revision_id:"b".repeat(64),
+   live_orders_enabled:false,section_order:order,
+   sections:Object.fromEntries(order.map(key=>[key,{}]))};
+ expect(parseCouncilBriefing(payload).section_order).toHaveLength(7);
+ expect(()=>parseCouncilBriefing({...payload,section_order:order.slice(0,6)})).toThrow();
+});

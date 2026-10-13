@@ -113,7 +113,7 @@ export function councilQuery(cursor: string = "0", query: string = ""): string {
   return new URLSearchParams({cursor:String(Number(cursor)),q:query}).toString();
 }
 
-export async function councilRequest(path: "snapshot" | "chat" | "archive", body?: unknown, query: string = ""): Promise<unknown> {
+export async function councilRequest(path: "snapshot" | "chat" | "archive" | "opportunities" | "briefing", body?: unknown, query: string = ""): Promise<unknown> {
   const base = (process.env.HERMES_BASE_URL || "").replace(/\/$/, "");
   const state = process.env.HERMES_AUTONOMY_STATE_URL || (base ? base + "/autonomy-state/snapshot" : "");
   const key = process.env.HERMES_AUTONOMY_STATE_API_KEY || process.env.HERMES_RESEARCH_API_KEY || "";
@@ -177,4 +177,62 @@ export function explainRiskMessage(text:string):string {
  if(Number(quantity)===0) return "Hermes stelt geen oefentransactie voor. Er is hier geen aankoop of verkoop om goed te keuren.";
  if(status==="RESIZE") return "Het voorstel is verkleind tot "+quantity.replace(".",",")+" oefenaandelen. "+why+" De laatste controle moet nog volgen.";
  return "Dit oefenvoorstel past binnen de ingestelde risicogrenzen. De laatste controle moet nog bevestigen of de transactie door kan gaan.";
+}
+
+
+export type CouncilOpportunity = {
+  listing_id:string; symbol:string; exchange:string; status:"SOURCE_PREFLIGHT_REQUIRED";
+  screening_signal_abs_change:string;
+  opportunity_score:null;
+  research_confidence_score:string;
+  research_confidence_scope:"IDENTITY_ONLY";
+  valuation_available:false;
+  selection_reason:string;
+};
+export type CouncilOpportunities = {
+  schema_version:1; generated_at:string; source_status:string;
+  opportunity_score:"NOT_COMPUTED_MISSING_VALUATION";
+  items:CouncilOpportunity[];
+};
+export function parseCouncilOpportunities(value:unknown):CouncilOpportunities {
+  if(!object(value) || value.schema_version!==1 || !Array.isArray(value.items) ||
+     value.items.length>100 || typeof value.generated_at!=="string" ||
+     !Number.isFinite(Date.parse(value.generated_at)) || typeof value.source_status!=="string" ||
+     value.opportunity_score!=="NOT_COMPUTED_MISSING_VALUATION") throw new Error("Ongeldige ranking");
+  const seen=new Set<string>();
+  for(const row of value.items) {
+    if(!object(row) || typeof row.symbol!=="string" || typeof row.listing_id!=="string" ||
+       seen.has(row.symbol) || typeof row.exchange!=="string" ||
+       row.status!=="SOURCE_PREFLIGHT_REQUIRED" || row.opportunity_score!==null ||
+       row.valuation_available!==false || row.research_confidence_scope!=="IDENTITY_ONLY" ||
+       typeof row.selection_reason!=="string" ||
+       !decimalOpportunity(row.screening_signal_abs_change) ||
+       !decimalOpportunity(row.research_confidence_score))
+       throw new Error("Ongeldige rankingrij");
+    seen.add(row.symbol);
+  }
+  return value as unknown as CouncilOpportunities;
+}
+const decimalOpportunity=(value:unknown):value is string=>
+  typeof value==="string" && /^\d+(?:\.\d+)?$/.test(value) && Number.isFinite(Number(value));
+
+
+const briefingSectionOrder = ["executive_summary","research_universe","top_opportunities",
+  "agent_council","portfolio_risk","performance","tomorrow_research_queue"] as const;
+export type CouncilBriefing = {
+  schema_version:1;report_id:string;report_date:string;
+  status:"COMPLETE"|"INCOMPLETE";report_hash:string;revision_id:string;
+  section_order:string[];sections:Record<string, Record<string,unknown>>;
+  live_orders_enabled:false;
+};
+export function parseCouncilBriefing(value:unknown):CouncilBriefing {
+  if(!object(value) || value.schema_version!==1 || value.live_orders_enabled!==false ||
+     !["COMPLETE","INCOMPLETE"].includes(String(value.status)) ||
+     typeof value.report_id!=="string" || !/^briefing:\d{4}-\d{2}-\d{2}$/.test(value.report_id) ||
+     typeof value.report_date!=="string" || !hash.test(String(value.report_hash)) ||
+     !hash.test(String(value.revision_id)) || !Array.isArray(value.section_order) ||
+     value.section_order.length!==7 || !object(value.sections) ||
+     !briefingSectionOrder.every((key,index)=>value.section_order[index]===key && object(value.sections[key])))
+    throw new Error("Ongeldig dagrapport of ontbrekende onderbouwing");
+  return value as unknown as CouncilBriefing;
 }

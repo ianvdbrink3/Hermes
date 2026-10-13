@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { HermesShell } from "./hermes-shell";
-import { parseCouncilSnapshot, type CouncilSnapshot, type CouncilMessage, type CouncilArchive, parseCouncilArchive, explainRiskMessage } from "@/lib/os/council";
+import { parseCouncilSnapshot, type CouncilSnapshot, type CouncilMessage, type CouncilArchive, parseCouncilArchive, explainRiskMessage, parseCouncilOpportunities, type CouncilOpportunities, parseCouncilBriefing, type CouncilBriefing } from "@/lib/os/council";
 import styles from "./council-dashboard.module.css";
 
 const names: Record<string,string> = { FUNDAMENTAL:"Bedrijfsanalist",MACRO:"Economie",
@@ -51,7 +51,11 @@ function Message({message,messages}:{message:CouncilMessage;messages:CouncilMess
 export function CouncilDashboard({active="onderzoek"}:{active?:"onderzoek"|"trading"}) {
  const [data,setData]=useState<CouncilSnapshot|null>(null);
  const [error,setError]=useState("");
- const [tab,setTab]=useState<"report"|"agents"|"chat"|"stocks">("report");
+ const [tab,setTab]=useState<"report"|"agents"|"chat"|"stocks"|"opportunities">("report");
+ const [opportunities,setOpportunities]=useState<CouncilOpportunities|null>(null);
+ const [opportunitiesError,setOpportunitiesError]=useState("");
+ const [briefing,setBriefing]=useState<CouncilBriefing|null>(null);
+ const [briefingError,setBriefingError]=useState("");
  const [question,setQuestion]=useState("");
  const [caseId,setCaseId]=useState("");
  const [archive,setArchive]=useState<CouncilArchive|null>(null);
@@ -88,6 +92,41 @@ export function CouncilDashboard({active="onderzoek"}:{active?:"onderzoek"|"trad
    const timer=setInterval(()=>void refresh(),30_000);
    return ()=>{active=false;controller.abort();clearInterval(timer);};
  },[cursor,search]);
+ useEffect(()=>{
+   const controller=new AbortController();
+   async function refreshOpportunities() {
+     try {
+       const response=await fetch("/api/os/council/opportunities",{cache:"no-store",signal:controller.signal});
+       if(!response.ok) throw new Error("De ranking is momenteel niet verifieerbaar.");
+       const next=parseCouncilOpportunities(await response.json());
+       if(!controller.signal.aborted) {setOpportunities(next);setOpportunitiesError("");}
+     } catch(error) {
+       if(!controller.signal.aborted) setOpportunitiesError(
+         error instanceof Error ? error.message : "De ranking is niet beschikbaar."
+       );
+     }
+   }
+   void refreshOpportunities();
+   const timer=setInterval(()=>void refreshOpportunities(),120_000);
+   return ()=>{controller.abort();clearInterval(timer);};
+ },[]);
+ useEffect(()=>{
+   const controller=new AbortController();
+   async function readBriefing() {
+     try {
+       const response=await fetch("/api/os/council/briefing",{cache:"no-store",signal:controller.signal});
+       if(!response.ok) throw new Error("Het 7-delige briefingarchief is nog niet beschikbaar.");
+       const next=parseCouncilBriefing(await response.json());
+       if(!controller.signal.aborted) {setBriefing(next);setBriefingError("");}
+     } catch(error) {
+       if(!controller.signal.aborted) setBriefingError(
+         error instanceof Error ? error.message : "Rapport niet verifieerbaar."
+       );
+     }
+   }
+   void readBriefing();
+   return ()=>controller.abort();
+ },[]);
  useEffect(()=>{
    if(!caseId) {setArchive(null);return;}
    const controller=new AbortController();
@@ -145,11 +184,47 @@ export function CouncilDashboard({active="onderzoek"}:{active?:"onderzoek"|"trad
      Dit is nog geen afgeronde analyse.
    </p>:null}
    <nav className={styles.tabs} aria-label="Onderzoeksraad">
-     {([["report","Dagrapport"],["agents","Agentoverleg"],["chat","Vraag de CIO"],["stocks","Aandelenregister"]] as const).map(([key,label])=>
+     {([["report","Dagrapport"],["agents","Agentoverleg"],["chat","Vraag de CIO"],["stocks","Aandelenregister"],["opportunities","Kansenranking"]] as const).map(([key,label])=>
        <button key={key} type="button" aria-pressed={tab===key} onClick={()=>setTab(key)}>{label}</button>)}
    </nav>
    <section className={styles.panel}>
    {tab==="report" ? <><h2>Wat heeft Hermes vandaag gedaan?</h2>
+     <h3>Hermes Daily Investment Briefing — 7 onderdelen</h3>
+     {briefingError?<p role="alert">{briefingError}</p>:null}
+     {briefing?<><p>Rapport: {briefing.report_id} · {briefing.status} ·
+       Audit: {briefing.report_hash.slice(0,16)}…</p>
+       {([
+         ["executive_summary","1. Executive Summary"],
+         ["research_universe","2. Research Universe"],
+         ["top_opportunities","3. Top Opportunities"],
+         ["agent_council","4. Agent Council & Debate"],
+         ["portfolio_risk","5. Portfolio & Risk"],
+         ["performance","6. Performance"],
+         ["tomorrow_research_queue","7. Tomorrow's Research Queue"],
+       ] as const).map(([key,label])=><details key={key} open={key==="executive_summary"}>
+         <summary>{label}</summary>
+         {key==="executive_summary"?<p>{String(briefing.sections[key].summary_nl)}</p>:null}
+         {key==="research_universe"?<p>
+           Geregistreerd: {String(briefing.sections[key].registered)} ·
+           Gescand: {String(briefing.sections[key].scanned)} ·
+           CIK-kandidaten: {String(briefing.sections[key].source_candidates)} ·
+           Deep research: {String(briefing.sections[key].deep_research)}
+         </p>:null}
+         {key==="top_opportunities" || key==="tomorrow_research_queue"?
+          <p>Kandidaten: {Array.isArray(briefing.sections[key].items)?
+            briefing.sections[key].items.length : "onbekend"}.
+            Dit is screening; geen koopadvies of geautoriseerde agenttaak.</p>:null}
+         {key==="agent_council"?<p>Agentstatus: {JSON.stringify(briefing.sections[key].agents)}</p>:null}
+         {key==="portfolio_risk"?<p>Paperdag: {String(briefing.sections[key].paper_day)} ·
+           Reconciliatie: {String(briefing.sections[key].reconciliation)}</p>:null}
+         {key==="performance"?<p>Benchmarkstatus: {String(briefing.sections[key].status)} ·
+           Rendement: {typeof briefing.sections[key].hermes_return==="string"?
+             briefing.sections[key].hermes_return:"niet verifieerbaar"}</p>:null}
+         {key==="tomorrow_research_queue"?<p>Planningsstatus:
+           {String(briefing.sections[key].status)}</p>:null}
+       </details>)}
+     </>:<p>Het geverifieerde 7-delige briefingbestand is nog niet beschikbaar.</p>}
+
      {data?.daily_status?<article className={styles.notice} data-testid="daily-final-status">
        <strong>Definitieve dagstatus: {data.daily_status.status}</strong>
        <p>Rapport: {data.daily_status.report_id} · Paperdag: {data.daily_status.paper_day}</p>
@@ -220,6 +295,22 @@ export function CouncilDashboard({active="onderzoek"}:{active?:"onderzoek"|"trad
            {sending?"CIO denkt na…":"Verstuur vraag"}</button></div>
        {sendError?<p role="alert">{sendError}</p>:null}
      </form>:null}
+   </> : null}
+   {tab==="opportunities" ? <>
+     <h2>Brongebonden screeningsranking</h2>
+     <p>Dit zijn koersbewegingen van noteringen met geverifieerde bedrijfsidentiteit.
+     Het zijn geen fundamentele waarderingsscores, koopaanbevelingen of afgeronde analyses.</p>
+     {opportunitiesError?<p role="alert">{opportunitiesError}</p>:null}
+     {opportunities?<><p>Bronstatus: {opportunities.source_status}.
+       Screening: {time(opportunities.generated_at)}. Waardering nog niet berekend.</p>
+       <div className={styles.tableWrap}><table><thead><tr>
+         <th>Symbool</th><th>Beurs</th><th>Absoluut koerssignaal</th>
+         <th>Research confidence</th><th>Waarderingsscore</th>
+       </tr></thead><tbody>{opportunities.items.map(item=><tr key={item.listing_id}>
+         <td>{item.symbol}</td><td>{item.exchange}</td>
+         <td>{item.screening_signal_abs_change}%</td>
+         <td>{item.research_confidence_score} (alleen identiteit)</td>
+         <td>Niet beschikbaar</td></tr>)}</tbody></table></div></>:<p>Nog geen ranking geladen.</p>}
    </> : null}
    {tab==="stocks" ? <><h2>Het brede aandelenregister</h2><p>Een vermelding in het register betekent dat Hermes de notering heeft gevonden. Het is nog geen goedgekeurde belegging of afgerond onderzoek.</p>
      <form onSubmit={e=>{e.preventDefault();setCursor("0");setSearch(searchDraft.trim());}} className={styles.composer}>
