@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { HermesShell } from "./hermes-shell";
-import { parseCouncilSnapshot, type CouncilSnapshot, type CouncilMessage, type CouncilArchive, parseCouncilArchive } from "@/lib/os/council";
+import { parseCouncilSnapshot, type CouncilSnapshot, type CouncilMessage, type CouncilArchive, parseCouncilArchive, explainRiskMessage } from "@/lib/os/council";
 import styles from "./council-dashboard.module.css";
 
 const names: Record<string,string> = { FUNDAMENTAL:"Bedrijfsanalist",MACRO:"Economie",
@@ -19,7 +19,7 @@ function percentage(value:string|null|undefined) {
  return value == null ? "Nog niet beschikbaar" : new Intl.NumberFormat("nl-NL",{style:"percent",maximumFractionDigits:2}).format(Number(value));
 }
 function Message({message,messages}:{message:CouncilMessage;messages:CouncilMessage[]}) {
- let explanation = message.text_nl;
+ let explanation = message.role==="RISK" ? explainRiskMessage(message.text_nl) : message.text_nl;
  let details: Record<string,unknown> | null = null;
  try {
    const parsed:unknown=JSON.parse(message.text_nl);
@@ -63,6 +63,11 @@ export function CouncilDashboard({active="onderzoek"}:{active?:"onderzoek"|"trad
  const [search,setSearch]=useState("");
  const [searchDraft,setSearchDraft]=useState("");
  const request=useRef<{text:string;key:string}|null>(null);
+ useEffect(()=>{
+   const selected=new URLSearchParams(window.location.search).get("case");
+   if(selected && /^[A-Za-z0-9:_./-]{1,160}$/.test(selected)) {setCaseId(selected);setTab("agents");}
+ },[]);
+
  useEffect(()=>{
    const controller=new AbortController();
    let active=true;
@@ -134,6 +139,11 @@ export function CouncilDashboard({active="onderzoek"}:{active?:"onderzoek"|"trad
      ["Onderzoeken afgerond",count?.research,"Vier afzonderlijke analisten en de CIO"],
      ["Echte paperdagen",count?.paper_days,"Gecontroleerde dagelijkse portefeuille"],
    ].map(([label,value,note])=><div key={String(label)}><small>{label}</small><strong>{typeof value==="number"?value.toLocaleString("nl-NL"):"—"}</strong><p>{note}</p></div>)}</div>
+   {typeof count?.matched_registered==="number"?<p>
+     {count.matched_registered.toLocaleString("nl-NL")} noteringen zijn aan een koersregel gekoppeld.
+     {typeof count.source_candidates==="number"?" "+count.source_candidates.toLocaleString("nl-NL")+" kandidaat heeft voldoende bedrijfsidentiteit voor broncontrole.":""}
+     Dit is nog geen afgeronde analyse.
+   </p>:null}
    <nav className={styles.tabs} aria-label="Onderzoeksraad">
      {([["report","Dagrapport"],["agents","Agentoverleg"],["chat","Vraag de CIO"],["stocks","Aandelenregister"]] as const).map(([key,label])=>
        <button key={key} type="button" aria-pressed={tab===key} onClick={()=>setTab(key)}>{label}</button>)}
@@ -177,14 +187,14 @@ export function CouncilDashboard({active="onderzoek"}:{active?:"onderzoek"|"trad
          <option value="">Recente berichten</option>{data?.cases?.slice().reverse().map(c=>
            <option key={c.case_id} value={c.case_id}>{c.instrument_id} · {time(c.generated_at)} · {c.status==="RESEARCH_COMPLETE"?"afgerond":c.status==="RESEARCH_STARTED"?"afronding nog onbekend":c.status==="PRELIMINARY"?"bronnen ontbreken":"mislukt"}</option>)}
        </select>{archiveError?<p role="alert">{archiveError}</p>:null}
-       {archive?<details><summary>Originele bronnen en uitgebreide onderbouwing</summary>
+       {archive && active==="onderzoek"?<details><summary>Originele bronnen en uitgebreide onderbouwing</summary>
          <p>Dit archief bevat de originele broninhoud. Uitgebreide bronteksten kunnen Engelstalig zijn.</p>
          {archive.evidence.sources.map(source=><details key={source.source_hash}>
            <summary>{names[source.role] || source.role} · {source.url}</summary>
            <p>Gepubliceerd: {time(source.published_at)}. Opgehaald: {time(source.retrieved_at)}.</p>
            <p>Broncontrole: {source.source_hash}</p><pre style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{source.content}</pre>
          </details>)}
-       </details>:null}</>:null}
+       </details>:archive?<p><a href={"/onderzoeksraad?case="+encodeURIComponent(caseId)}>Open de uitgebreide onderbouwing en originele bronnen</a></p>:null}</>:null}
      <div className={styles.timeline}>{messages.length ? messages.map(m=><Message key={m.message_id} message={m} messages={messages}/>) :
        <div className={styles.empty}><strong>{tab==="agents"?"Nog geen echte agentgesprekken":"Nog geen gesprek met de CIO"}</strong>
          <p>{tab==="agents"?"Hier verschijnen uitsluitend opgeslagen berichten van echte aanvragen.":"Je kunt hier een vraag stellen zodra de onderzoeksraad en de bronnen beschikbaar zijn."}</p></div>}</div>

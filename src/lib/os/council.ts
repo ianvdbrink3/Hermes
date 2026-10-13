@@ -15,7 +15,7 @@ export type CouncilSnapshot = {
   schema_version: 3; mode: "council"; fixture: false; live_orders_enabled: false;
   generated_at: string;
   research_active?: boolean;
-  counts: { registered: number; scanned: number; research: number; paper_days: number };
+  counts: { registered: number; scanned: number; research: number; paper_days: number; matched_registered?:number; source_candidates?:number };
   messages: CouncilMessage[];
   report: CouncilReport | null;
   report_history?: CouncilReport[];
@@ -126,4 +126,31 @@ export function parseCouncilArchive(value:unknown, caseId:string):CouncilArchive
       typeof m.generated_at!=="string") throw new Error("Ongeldig archiefbericht");
  }
  return value as unknown as CouncilArchive;
+}
+
+
+export function explainRiskMessage(text:string):string {
+ const status=text.match(/De risicocontrole geeft (APPROVE|BLOCK|RESIZE)\./)?.[1];
+ const quantity=text.match(/Voorgestelde oefenhoeveelheid: ([0-9.+Ee-]+)\./)?.[1];
+ if(!status || quantity===undefined || !Number.isFinite(Number(quantity))) return "Er is een risicocontrole opgeslagen. De volledige registratie staat in het onderzoeksarchief.";
+ const reasons:Record<string,string>={
+  STALE_OR_FUTURE_DATA:"De gebruikte gegevens zijn te oud of hebben een ongeldige datum.",
+  INCOMPLETE_EXPOSURE:"Hermes mist gegevens om het totale portefeuillerisico te controleren.",
+  SYSTEM_HALTED:"De veiligheidsstop staat aan.",
+  LIQUIDATION_ONLY:"Hermes mag momenteel alleen bestaande posities sluiten.",
+  NO_NEW_POSITIONS:"Nieuwe posities zijn tijdelijk geblokkeerd.",
+  REDUCE_RISK_ONLY:"Hermes mag momenteel alleen risico afbouwen.",
+  EVENT_RISK:"Een belangrijke gebeurtenis of onvoldoende bevestigde gegevens blokkeren dit voorstel.",
+  CONFIDENCE_BELOW_MINIMUM:"De zekerheid van de CIO blijft onder de ingestelde ondergrens.",
+  DRAWDOWN_LIMIT:"Het verlies vanaf de hoogste portefeuillewaarde is te groot voor extra risico.",
+  VOLATILITY_LIMIT:"Hermes vindt de koers te beweeglijk voor de ingestelde risicogrens.",
+  NO_RISK_CAPACITY:"Er is geen ruimte meer binnen de grens voor dit aandeel, zijn sector of regio.",
+  TARGET_RESIZED_TO_RISK_CAPACITY:"De omvang moet binnen de grens voor dit aandeel, zijn sector of regio blijven."
+ };
+ const codes=(text.match(/Redenen: (.*?)\. Voorgestelde/)?.[1] || "").split(",").map(s=>s.trim()).filter(Boolean);
+ const why=codes.map(code=>reasons[code] || "Er is een aanvullende risicoblokkade. Raadpleeg de volledige registratie.").join(" ");
+ if(status==="BLOCK") return "De oefentransactie gaat niet door. "+why;
+ if(Number(quantity)===0) return "Hermes stelt geen oefentransactie voor. Er is hier geen aankoop of verkoop om goed te keuren.";
+ if(status==="RESIZE") return "Het voorstel is verkleind tot "+quantity.replace(".",",")+" oefenaandelen. "+why+" De laatste controle moet nog volgen.";
+ return "Dit oefenvoorstel past binnen de ingestelde risicogrenzen. De laatste controle moet nog bevestigen of de transactie door kan gaan.";
 }
