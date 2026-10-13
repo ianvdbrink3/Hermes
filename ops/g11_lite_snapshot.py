@@ -48,6 +48,10 @@ def read_mode(runtime: Path) -> dict | None:
     path=runtime/"g11-mode.json"
     if not path.exists(): return None
     value=bounded_json(path,16000)
+    if value.get("mode")=="council":
+        from g11.council.mode import read_council_mode
+        read_council_mode(runtime.parent, now=datetime.now(UTC), check_halts=False)
+        value=bounded_json(runtime/"g11-council/previous-mode.json",16000)
     body={k:v for k,v in value.items() if k!="config_hash"}
     if (value.get("config_hash")!=canonical_hash(body) or value.get("schema_version")!=2
         or value.get("mode") not in {"pilot","multi-lite"}

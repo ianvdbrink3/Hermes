@@ -10,11 +10,15 @@ import json
 import os
 import re
 import subprocess
+import http.client
+import socket
+from urllib.parse import urlsplit, parse_qs
 
 REPO = Path(os.environ.get("AUTONOMY_REPO", "/home/ubuntu/Hermes-Stocks/hermes-investment-machine")).resolve()
 RESEARCH_ENV = Path(os.environ.get("RESEARCH_ENV", "/home/ubuntu/.hermes/profiles/his-research/.env"))
 PORT = int(os.environ.get("AUTONOMY_STATE_PORT", "8670"))
 COMPUTE_DIR = REPO / "state/autonomy/compute"
+G11_REPO = Path("/home/ubuntu/Hermes-Stocks/r9d-a04-p013-correction")
 
 def env_value(path: Path, key: str) -> str:
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -396,6 +400,47 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             self.send_json(200, {"ok": True})
             return
+        parsed = urlsplit(self.path)
+        if parsed.path == "/council/archive":
+            try:
+                params = parse_qs(parsed.query, strict_parsing=True)
+                case = params.get("case", [""])[0]
+                if set(params) != {"case"} or len(params["case"]) != 1 or not re.fullmatch(r"[A-Za-z0-9:_./-]{1,160}", case):
+                    raise ValueError("invalid case")
+                result = subprocess.run(
+                    [str(G11_REPO / ".venv/bin/python"), str(G11_REPO / "scripts/run-g11-council.py"),
+                     "--mode", "archive", "--case", case],
+                    capture_output=True, text=True, timeout=25, check=True,
+                )
+                if len(result.stdout.encode()) > 8_000_000:
+                    raise ValueError("oversized archive")
+                self.send_json(200, json.loads(result.stdout))
+            except Exception:
+                self.send_json(503, {"error": "verified_archive_unavailable"})
+            return
+        if parsed.path == "/council/snapshot":
+            try:
+                params = parse_qs(parsed.query, keep_blank_values=True, strict_parsing=True) if parsed.query else {}
+                if set(params) - {"cursor", "q"} or any(len(v) != 1 for v in params.values()):
+                    raise ValueError("invalid query")
+                cursor = params.get("cursor", ["0"])[0]
+                query = params.get("q", [""])[0]
+                if not cursor.isdigit() or int(cursor) > 100000 or len(query) > 100:
+                    raise ValueError("invalid query")
+            except ValueError:
+                self.send_json(400, {"error": "invalid_query"})
+                return
+            try:
+                result = subprocess.run(
+                    [str(G11_REPO / ".venv/bin/python"), str(G11_REPO / "scripts/run-g11-council.py"),
+                     "--mode", "snapshot", "--cursor", cursor, "--query", query],
+                    capture_output=True, text=True, timeout=25, check=True,
+                )
+                self.send_json(200, json.loads(result.stdout))
+            except Exception as exc:
+                print("COUNCIL_PROJECTION_FAILURE", type(exc).__name__, flush=True)
+                self.send_json(503, {"error": "council_snapshot_unavailable"})
+            return
         if self.path == "/g11-shadow":
             try:
                 result = subprocess.run(
@@ -415,6 +460,38 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(500, {"error": "snapshot_failed", "detail": type(exc).__name__})
             return
         self.send_json(404, {"error": "Not found"})
+
+    def do_POST(self) -> None:
+        if not self.authorized():
+            self.send_json(401, {"error": "Unauthorized"})
+            return
+        if self.path != "/council/chat":
+            self.send_error(501, "Unsupported method")
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 8000 or self.headers.get_content_type() != "application/json":
+                self.send_json(400, {"error": "invalid_question"})
+                return
+            raw = self.rfile.read(length)
+            connection = http.client.HTTPConnection("localhost", timeout=115)
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.settimeout(115)
+            sock.connect(str(G11_REPO / "runtime/g11-council/bridge.sock"))
+            connection.sock = sock
+            try:
+                connection.request("POST", "/council/chat", body=raw,
+                                   headers={"Content-Type": "application/json"})
+                response = connection.getresponse()
+                body = response.read(2_000_001)
+                if len(body) > 2_000_000:
+                    raise ValueError("oversized council response")
+                self.send_json(response.status, json.loads(body))
+            finally:
+                connection.close()
+        except Exception as exc:
+            print("COUNCIL_CHAT_FAILURE", type(exc).__name__, flush=True)
+            self.send_json(503, {"error": "council_chat_unavailable_no_retry"})
 
     def log_message(self, fmt: str, *args: object) -> None:
         return

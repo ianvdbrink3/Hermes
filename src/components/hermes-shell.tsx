@@ -16,6 +16,7 @@ const nav: Array<{ section: HermesSection; href: string; label: string; icon: st
 ];
 
 const secondaryNav = [
+  { href: "/onderzoeksraad", label: "Onderzoeksraad", icon: "◉" },
   { href: "/analyses", label: "Uitgebreide analyses", icon: "≡" },
   { href: "/instellingen/systeem", label: "Systeemstatus", icon: "◎" },
   { href: "/instellingen/geavanceerd", label: "Hermes verbeteren", icon: "✦" },
