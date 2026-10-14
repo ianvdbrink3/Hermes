@@ -20,6 +20,12 @@ describe("council snapshot", () => {
           {budget:{...valid.budget,total_consumed:13}}])("rejects unsafe provenance %s", change => {
    expect(()=>parseCouncilSnapshot({...valid,...change})).toThrow();
  });
+ it.each([12,20,30])("accepts explicitly versioned daily request limit %i", limit=>{
+   expect(parseCouncilSnapshot({...valid,budget:{...valid.budget,limit,total_consumed:limit}}).budget.total_consumed).toBe(limit);
+ });
+ it("rejects any quota beyond the documented maximum",()=>{
+   expect(()=>parseCouncilSnapshot({...valid,budget:{...valid.budget,limit:300,total_consumed:0}})).toThrow();
+ });
  it("rejects fabricated model messages without physical identity", () => {
    expect(()=>parseCouncilSnapshot({...valid,messages:[{
      message_id:"x",role:"CIO",text_nl:"Koop",generated_at:valid.generated_at,

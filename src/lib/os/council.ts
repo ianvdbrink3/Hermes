@@ -32,7 +32,7 @@ export type CouncilSnapshot = {
   cases?:{case_id:string;instrument_id:string;generated_at:string;status:string;evidence_hash:string}[];
   job_health?:{status:string;phase:string;started_at:string;finished_at?:string}|null;
   blockers_nl: string[];
-  budget: {total_consumed:number;limit:12;chat_consumed:number;chat_limit:4;unfinished_attempts?:{case_id:string;role:string;reserved_at:string;status:string}[]};
+  budget: {total_consumed:number;limit:12|20|30;chat_consumed:number;chat_limit:4;unfinished_attempts?:{case_id:string;role:string;reserved_at:string;status:string}[]};
   stocks: {listing_id:string;name:string;symbol:string;status_nl:string}[];
   next_cursor: string | null;
   portfolio?: {cash:string;total_value:string;holdings:{instrument_id:string;quantity:string}[]} | null;
@@ -52,8 +52,8 @@ export function parseCouncilSnapshot(value: unknown): CouncilSnapshot {
       value.fixture !== false || value.live_orders_enabled !== false ||
       typeof value.generated_at !== "string" || !Number.isFinite(Date.parse(value.generated_at)) ||
       !object(value.counts) || !["registered","scanned","research","paper_days"].every(k=>count((value.counts as Record<string,unknown>)[k])) ||
-      !object(value.budget) || value.budget.limit !== 12 || value.budget.chat_limit !== 4 ||
-      !count(value.budget.total_consumed) || value.budget.total_consumed > 12 ||
+      !object(value.budget) || ![12,20,30].includes(Number(value.budget.limit)) || value.budget.chat_limit !== 4 ||
+      !count(value.budget.total_consumed) || value.budget.total_consumed > Number(value.budget.limit) ||
       !count(value.budget.chat_consumed) || value.budget.chat_consumed > 4 ||
       !strings(value.blockers_nl) || !Array.isArray(value.messages) ||
       !Array.isArray(value.stocks) || value.stocks.length > 100 ||
