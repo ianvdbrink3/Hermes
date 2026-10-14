@@ -6,6 +6,7 @@ import styles from "./login.module.css";
 
 export function LoginForm() {
   const searchParams = useSearchParams();
+  const [visible, setVisible] = useState(false);
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,19 +45,20 @@ export function LoginForm() {
     <section className={`${styles.card} ${configMissing ? styles.missing : ""}`}>
       <div className={styles.mark}>H</div>
       <span className={styles.eyebrow}>HERMES INVESTMENT OS</span>
-      <h1>Toegang voor eigenaar</h1>
+      <h1>Welkom bij Hermes</h1>
       <p>Log in om je Hermes-overzicht, onderzoek en beveiligde systeemstatus te openen.</p>
       {configMissing ? (
         <p><strong>De beveiligde toegang is nog niet ingesteld.</strong> Stel OS_ACCESS_PASSWORD en OS_SESSION_SECRET in Vercel in en deploy daarna opnieuw.</p>
       ) : (
         <form className={styles.form} onSubmit={submit}>
           <label htmlFor="password">Wachtwoord</label>
-          <input id="password" name="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} autoFocus />
-          <button disabled={busy || !password}>{busy ? "INLOGGEN…" : "OPEN HERMES"}</button>
+          <input id="password" name="password" type={visible ? "text" : "password"} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} autoFocus />
+          <button type="button" className={styles.reveal} aria-pressed={visible} onClick={() => setVisible(value => !value)}>{visible ? "Verberg wachtwoord" : "Toon wachtwoord"}</button>
+          <button disabled={busy || !password}>{busy ? "Inloggen…" : "Open Hermes"}</button>
         </form>
       )}
-      {error && <p className={styles.error}>{error}</p>}
-      <div className={styles.meta}>Beveiligde HttpOnly-sessie · SameSite=Strict · verloopt na 12 uur</div>
+      {error && <p role="alert" className={styles.error}>{error}</p>}
+      <div className={styles.meta}>Je sessie verloopt na 12 uur.</div>
     </section>
   );
 }

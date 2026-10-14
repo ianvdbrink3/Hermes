@@ -1,5 +1,2 @@
-import { SimpleHermes } from "@/components/simple-hermes";
-
-export default function TradingPage() {
-  return <SimpleHermes page="trading" />;
-}
+import { CouncilDashboard } from "@/components/council-dashboard";
+export default function TradingPage() { return <CouncilDashboard active="trading"/>; }
