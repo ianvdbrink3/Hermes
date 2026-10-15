@@ -1,3 +1,4 @@
+import { parseOvernight, type OvernightResearch } from "./overnight";
 export type CouncilMessage = {
   message_id: string; role: string; text_nl: string; generated_at: string;
   attempt_id: string | null; evidence_refs: string[]; reply_to: string | null; fixture: false;
@@ -15,6 +16,7 @@ export type CouncilSnapshot = {
   schema_version: 3; mode: "council"; fixture: false; live_orders_enabled: false;
   generated_at: string;
   research_active?: boolean;
+  overnight?: OvernightResearch | null;
   counts: { registered: number; scanned: number; research: number; paper_days: number; matched_registered?:number; source_candidates?:number };
   messages: CouncilMessage[];
   report: CouncilReport | null;
@@ -22,7 +24,7 @@ export type CouncilSnapshot = {
   cases?:{case_id:string;instrument_id:string;generated_at:string;status:string;evidence_hash:string}[];
   job_health?:{status:string;phase:string;started_at:string;finished_at?:string}|null;
   blockers_nl: string[];
-  budget: {total_consumed:number;limit:12;chat_consumed:number;chat_limit:4;unfinished_attempts?:{case_id:string;role:string;reserved_at:string;status:string}[]};
+  budget: {total_consumed:number;limit:12|20|30;chat_consumed:number;chat_limit:4;unfinished_attempts?:{case_id:string;role:string;reserved_at:string;status:string}[]};
   stocks: {listing_id:string;name:string;symbol:string;status_nl:string}[];
   next_cursor: string | null;
   portfolio?: {cash:string;total_value:string;holdings:{instrument_id:string;quantity:string}[]} | null;
@@ -31,7 +33,7 @@ export type CouncilSnapshot = {
   metrics?: {hermes_return:string|null;benchmark_return:string|null;sharpe:string|null;sortino:string|null;
     status:string;missing_metrics_nl:string[];confidence_calibration:unknown};
 };
-const modelRoles = ["FUNDAMENTAL","MACRO","QUANT","SENTIMENT","CIO"];
+const modelRoles = ["FUNDAMENTAL","MACRO","QUANT","TECHNICAL","SENTIMENT","CIO"];
 const roles = [...modelRoles,"USER","SYSTEM","RISK"];
 const hash = /^[a-f0-9]{64}$/;
 const object = (x: unknown): x is Record<string,unknown> => Boolean(x && typeof x === "object" && !Array.isArray(x));
@@ -42,8 +44,8 @@ export function parseCouncilSnapshot(value: unknown): CouncilSnapshot {
       value.fixture !== false || value.live_orders_enabled !== false ||
       typeof value.generated_at !== "string" || !Number.isFinite(Date.parse(value.generated_at)) ||
       !object(value.counts) || !["registered","scanned","research","paper_days"].every(k=>count((value.counts as Record<string,unknown>)[k])) ||
-      !object(value.budget) || value.budget.limit !== 12 || value.budget.chat_limit !== 4 ||
-      !count(value.budget.total_consumed) || value.budget.total_consumed > 12 ||
+      !object(value.budget) || ![12,20,30].includes(Number(value.budget.limit)) || value.budget.chat_limit !== 4 ||
+      !count(value.budget.total_consumed) || value.budget.total_consumed > Number(value.budget.limit) ||
       !count(value.budget.chat_consumed) || value.budget.chat_consumed > 4 ||
       !strings(value.blockers_nl) || !Array.isArray(value.messages) ||
       !Array.isArray(value.stocks) || value.stocks.length > 100 ||
@@ -80,6 +82,7 @@ export function parseCouncilSnapshot(value: unknown): CouncilSnapshot {
      !strings(value.metrics.missing_metrics_nl) || ["hermes_return","benchmark_return","sharpe","sortino"].some(k=>
        (value.metrics as Record<string,unknown>)[k]!==null && !decimal((value.metrics as Record<string,unknown>)[k]))))
     throw new Error("Ongeldige rendementsgegevens");
+  if(value.overnight !== undefined && value.overnight !== null) parseOvernight(value.overnight);
   return value as unknown as CouncilSnapshot;
 }
 

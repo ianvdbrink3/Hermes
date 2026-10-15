@@ -1,13 +1,14 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { TopOpportunities } from "./top-opportunities";
 import { HermesShell } from "./hermes-shell";
 import { parseCouncilSnapshot, type CouncilSnapshot, type CouncilMessage, type CouncilArchive, parseCouncilArchive, explainRiskMessage } from "@/lib/os/council";
 import styles from "./council-dashboard.module.css";
 
 const names: Record<string,string> = { FUNDAMENTAL:"Bedrijfsanalist",MACRO:"Economie",
- QUANT:"Koersanalist",SENTIMENT:"Nieuws en verwachtingen",CIO:"Hoofdbeslisagent",
+ QUANT:"Kwantitatief analist",TECHNICAL:"Technisch analist",SENTIMENT:"Nieuws en verwachtingen",CIO:"Hoofdbeslisagent",
  USER:"Jij",SYSTEM:"Systeem",RISK:"Risicocontrole"};
-const initials: Record<string,string> = { FUNDAMENTAL:"B",MACRO:"E",QUANT:"K",
+const initials: Record<string,string> = { FUNDAMENTAL:"B",MACRO:"E",QUANT:"K",TECHNICAL:"T",
  SENTIMENT:"N",CIO:"H",USER:"J",SYSTEM:"S",RISK:"R"};
 function time(value:string) {
  return new Intl.DateTimeFormat("nl-NL",{dateStyle:"medium",timeStyle:"short",timeZone:"Europe/Amsterdam"}).format(new Date(value));
@@ -136,7 +137,7 @@ export function CouncilDashboard({active="onderzoek"}:{active?:"onderzoek"|"trad
    <div className={styles.stats}>{[
      ["In het register",count?.registered,"Ondersteunde Amerikaanse noteringen"],
      ["Koersregels opgehaald",count?.scanned,"Bronregels; koppeling aan het register wordt apart gecontroleerd"],
-     ["Onderzoeken afgerond",count?.research,"Vier afzonderlijke analisten en de CIO"],
+     ["Onderzoeken afgerond",count?.research,"Vijf afzonderlijke specialisten en de CIO"],
      ["Echte paperdagen",count?.paper_days,"Gecontroleerde dagelijkse portefeuille"],
    ].map(([label,value,note])=><div key={String(label)}><small>{label}</small><strong>{typeof value==="number"?value.toLocaleString("nl-NL"):"—"}</strong><p>{note}</p></div>)}</div>
    {typeof count?.matched_registered==="number"?<p>
@@ -144,6 +145,7 @@ export function CouncilDashboard({active="onderzoek"}:{active?:"onderzoek"|"trad
      {typeof count.source_candidates==="number"?" "+count.source_candidates.toLocaleString("nl-NL")+" kandidaat heeft voldoende bedrijfsidentiteit voor broncontrole.":""}
      Dit is nog geen afgeronde analyse.
    </p>:null}
+   <TopOpportunities data={data?.overnight}/>
    <nav className={styles.tabs} aria-label="Onderzoeksraad">
      {([["report","Dagrapport"],["agents","Agentoverleg"],["chat","Vraag de CIO"],["stocks","Aandelenregister"]] as const).map(([key,label])=>
        <button key={key} type="button" aria-pressed={tab===key} onClick={()=>setTab(key)}>{label}</button>)}
@@ -180,7 +182,7 @@ export function CouncilDashboard({active="onderzoek"}:{active?:"onderzoek"|"trad
    </> : null}
    {tab==="agents" || tab==="chat" ? <>
      <div className={styles.chatHeading}><div><h2>{tab==="agents"?"Het overleg tussen de analisten":"Jouw gesprek met de CIO"}</h2>
-       <p>{tab==="agents"?"Eerst analyseert iedereen zelfstandig. Daarna volgt overleg en een besluit van de CIO.":"Vraag naar de afweging, ontbrekende informatie of het dagrapport."}</p></div>
+       <p>{tab==="agents"?"Bedrijfsanalyse, economie, kwantitatieve analyse, technische analyse en nieuws: eerst werkt elke specialist zelfstandig. Daarna volgt het volledige overleg en een besluit van de CIO.":"Vraag naar de afweging, ontbrekende informatie of het dagrapport."}</p></div>
        {tab==="chat" && data ? <span>{Math.max(0,data.budget.chat_limit-data.budget.chat_consumed)} vragen resterend vandaag</span> : null}</div>
      {tab==="agents" ? <><label htmlFor="case-select">Kies een onderzoek</label>
        <select id="case-select" value={caseId} onChange={e=>setCaseId(e.target.value)}>

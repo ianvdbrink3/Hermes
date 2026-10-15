@@ -35,3 +35,22 @@ describe("register query",()=>{
 });
 
 it("rejects unknown monetary values instead of showing zero",()=>{expect(()=>parseCouncilSnapshot({...valid,portfolio:{cash:"NaN",total_value:"100000",holdings:[]}})).toThrow();});
+
+it("accepts a separate authenticated technical specialist",()=>{
+ expect(parseCouncilSnapshot({...valid,messages:[{
+  message_id:"technical",role:"TECHNICAL",text_nl:"Zelfstandige technische analyse.",
+  generated_at:valid.generated_at,attempt_id:"a".repeat(64),evidence_refs:["b".repeat(64)],
+  fixture:false,reply_to:null,
+ }]}).messages[0].role).toBe("TECHNICAL");
+});
+it("rejects an invalid optional overnight ranking",()=>{
+ expect(()=>parseCouncilSnapshot({...valid,overnight:{schema_version:1,generated_at:valid.generated_at,
+  counts:{verified_universe:100,enriched:20,complete:200},ranking:[]}})).toThrow();
+});
+
+it("accepts the authorized 20-request policy and rejects over-budget use",()=>{
+ const budget={...valid.budget,limit:20,total_consumed:13};
+ expect(parseCouncilSnapshot({...valid,budget}).budget.limit).toBe(20);
+ expect(()=>parseCouncilSnapshot({...valid,budget:{...budget,total_consumed:21}})).toThrow();
+ expect(()=>parseCouncilSnapshot({...valid,budget:{...budget,limit:40}})).toThrow();
+});
