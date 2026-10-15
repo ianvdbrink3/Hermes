@@ -7,6 +7,15 @@ export type CouncilReport = {
   summary_nl:string; blockers_nl:string[]; decisions:{case_id:string;text_nl:string}[];
   report_date?:string; report_state?:string; generated_at?:string;
 };
+export type CouncilDailyStatus = {
+  report_id:string; report_date:string; status:"COMPLETE"|"INCOMPLETE"|"FAILED";
+  paper_day:"COMPLETE"|"INCOMPLETE";
+  counts:{registered:number|null; scanned:number|null;eligible:number|null;deep_research:number|null};
+  agents:Record<string,unknown>; blockers:string[];
+  retry:{status:string;next_retry_at:string|null};
+  latest_run:{run_id:string|null;status:string|null};
+  last_successful_run:unknown;last_failed_run:unknown;
+};
 export type CouncilArchive = {
   fixture:false; case:{case_id:string;status:string;evidence_hash:string};
   evidence:{snapshot_hash:string;sources:{source_hash:string;url:string;published_at:string;retrieved_at:string;content:string;role:string}[]};
@@ -19,6 +28,7 @@ export type CouncilSnapshot = {
   overnight?: OvernightResearch | null;
   counts: { registered: number; scanned: number; research: number; paper_days: number; matched_registered?:number; source_candidates?:number };
   messages: CouncilMessage[];
+  daily_status?:CouncilDailyStatus|null;
   report: CouncilReport | null;
   report_history?: CouncilReport[];
   cases?:{case_id:string;instrument_id:string;generated_at:string;status:string;evidence_hash:string}[];
@@ -44,7 +54,7 @@ export function parseCouncilSnapshot(value: unknown): CouncilSnapshot {
       value.fixture !== false || value.live_orders_enabled !== false ||
       typeof value.generated_at !== "string" || !Number.isFinite(Date.parse(value.generated_at)) ||
       !object(value.counts) || !["registered","scanned","research","paper_days"].every(k=>count((value.counts as Record<string,unknown>)[k])) ||
-      !object(value.budget) || ![12,20,30].includes(Number(value.budget.limit)) || value.budget.chat_limit !== 4 ||
+      !object(value.budget) || typeof value.budget.limit!=="number" || ![12,20,30].includes(value.budget.limit) || value.budget.chat_limit !== 4 ||
       !count(value.budget.total_consumed) || value.budget.total_consumed > Number(value.budget.limit) ||
       !count(value.budget.chat_consumed) || value.budget.chat_consumed > 4 ||
       !strings(value.blockers_nl) || !Array.isArray(value.messages) ||
@@ -72,6 +82,20 @@ export function parseCouncilSnapshot(value: unknown): CouncilSnapshot {
       !strings(value.report.blockers_nl) || !Array.isArray(value.report.decisions) ||
       value.report.decisions.some(d=>!object(d) || typeof d.case_id !== "string" || typeof d.text_nl !== "string")))
     throw new Error("Ongeldig dagrapport");
+  if (value.daily_status !== undefined && value.daily_status !== null) {
+    const d=value.daily_status;
+    const statusCounts = object(d) && object(d.counts) ? d.counts : null;
+    if (!object(d) || typeof d.report_id!=="string" ||
+        !/^daily:\d{4}-\d{2}-\d{2}$/.test(d.report_id) ||
+        !["COMPLETE","INCOMPLETE","FAILED"].includes(String(d.status)) ||
+        !["COMPLETE","INCOMPLETE"].includes(String(d.paper_day)) ||
+        !statusCounts ||
+        !["registered","scanned","eligible","deep_research"].every(k=>
+          statusCounts[k]===null || count(statusCounts[k])) ||
+        !object(d.retry) || typeof d.retry.status!=="string" ||
+        !strings(d.blockers) || !object(d.latest_run))
+      throw new Error("Ongeldige definitieve dagstatus");
+  }
   const decimal = (x:unknown): x is string => typeof x === "string" && /^-?\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?$/.test(x) && Number.isFinite(Number(x));
   if (value.portfolio !== undefined && value.portfolio !== null && (!object(value.portfolio) ||
       !decimal(value.portfolio.cash) || !decimal(value.portfolio.total_value) ||
@@ -92,7 +116,7 @@ export function councilQuery(cursor: string = "0", query: string = ""): string {
   return new URLSearchParams({cursor:String(Number(cursor)),q:query}).toString();
 }
 
-export async function councilRequest(path: "snapshot" | "chat" | "archive", body?: unknown, query: string = ""): Promise<unknown> {
+export async function councilRequest(path: "snapshot" | "chat" | "archive" | "opportunities" | "briefing", body?: unknown, query: string = ""): Promise<unknown> {
   const base = (process.env.HERMES_BASE_URL || "").replace(/\/$/, "");
   const state = process.env.HERMES_AUTONOMY_STATE_URL || (base ? base + "/autonomy-state/snapshot" : "");
   const key = process.env.HERMES_AUTONOMY_STATE_API_KEY || process.env.HERMES_RESEARCH_API_KEY || "";
@@ -156,4 +180,63 @@ export function explainRiskMessage(text:string):string {
  if(Number(quantity)===0) return "Hermes stelt geen oefentransactie voor. Er is hier geen aankoop of verkoop om goed te keuren.";
  if(status==="RESIZE") return "Het voorstel is verkleind tot "+quantity.replace(".",",")+" oefenaandelen. "+why+" De laatste controle moet nog volgen.";
  return "Dit oefenvoorstel past binnen de ingestelde risicogrenzen. De laatste controle moet nog bevestigen of de transactie door kan gaan.";
+}
+
+
+export type CouncilOpportunity = {
+  listing_id:string; symbol:string; exchange:string; status:"SOURCE_PREFLIGHT_REQUIRED";
+  screening_signal_abs_change:string;
+  opportunity_score:null;
+  research_confidence_score:string;
+  research_confidence_scope:"IDENTITY_ONLY";
+  valuation_available:false;
+  selection_reason:string;
+};
+export type CouncilOpportunities = {
+  schema_version:1; generated_at:string; source_status:string;
+  opportunity_score:"NOT_COMPUTED_MISSING_VALUATION";
+  items:CouncilOpportunity[];
+};
+export function parseCouncilOpportunities(value:unknown):CouncilOpportunities {
+  if(!object(value) || value.schema_version!==1 || !Array.isArray(value.items) ||
+     value.items.length>100 || typeof value.generated_at!=="string" ||
+     !Number.isFinite(Date.parse(value.generated_at)) || typeof value.source_status!=="string" ||
+     value.opportunity_score!=="NOT_COMPUTED_MISSING_VALUATION") throw new Error("Ongeldige ranking");
+  const seen=new Set<string>();
+  for(const row of value.items) {
+    if(!object(row) || typeof row.symbol!=="string" || typeof row.listing_id!=="string" ||
+       seen.has(row.symbol) || typeof row.exchange!=="string" ||
+       row.status!=="SOURCE_PREFLIGHT_REQUIRED" || row.opportunity_score!==null ||
+       row.valuation_available!==false || row.research_confidence_scope!=="IDENTITY_ONLY" ||
+       typeof row.selection_reason!=="string" ||
+       !decimalOpportunity(row.screening_signal_abs_change) ||
+       !decimalOpportunity(row.research_confidence_score))
+       throw new Error("Ongeldige rankingrij");
+    seen.add(row.symbol);
+  }
+  return value as unknown as CouncilOpportunities;
+}
+const decimalOpportunity=(value:unknown):value is string=>
+  typeof value==="string" && /^\d+(?:\.\d+)?$/.test(value) && Number.isFinite(Number(value));
+
+
+const briefingSectionOrder = ["executive_summary","research_universe","top_opportunities",
+  "agent_council","portfolio_risk","performance","tomorrow_research_queue"] as const;
+export type CouncilBriefing = {
+  schema_version:1;report_id:string;report_date:string;
+  status:"COMPLETE"|"INCOMPLETE";report_hash:string;revision_id:string;
+  section_order:string[];sections:Record<string, Record<string,unknown>>;
+  live_orders_enabled:false;
+};
+export function parseCouncilBriefing(value:unknown):CouncilBriefing {
+  const order=object(value) && Array.isArray(value.section_order) ? value.section_order : null;
+  const sections=object(value) && object(value.sections) ? value.sections : null;
+  if(!object(value) || value.schema_version!==1 || value.live_orders_enabled!==false ||
+     !["COMPLETE","INCOMPLETE"].includes(String(value.status)) ||
+     typeof value.report_id!=="string" || !/^briefing:\d{4}-\d{2}-\d{2}$/.test(value.report_id) ||
+     typeof value.report_date!=="string" || !hash.test(String(value.report_hash)) ||
+     !hash.test(String(value.revision_id)) || !order || order.length!==7 || !sections ||
+     !briefingSectionOrder.every((key,index)=>order[index]===key && object(sections[key])))
+    throw new Error("Ongeldig dagrapport of ontbrekende onderbouwing");
+  return value as unknown as CouncilBriefing;
 }

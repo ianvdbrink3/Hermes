@@ -23,3 +23,6 @@ Run full npm test, npm run typecheck, npm run build and git diff --check, then i
 ## Local validation evidence
 Full Vitest: 8 files, 109 passed and 1 existing skip, exit 0.
 Default npm run build (Turbopack) was inconclusive: after more than eight minutes it still showed Creating an optimized production build, with no compiler error. The 954 MB host was swapping heavily. The known build process was terminated to free resources. A full production webpack build is the fallback, invoked with NODE_OPTIONS=--max-old-space-size=512 npm run build -- --webpack; this changes no source configuration.
+
+## Continuation on 15 October 2026
+The initial overnight attempt was interrupted before activation. The preserved UI was recovered in an isolated worktree. Its complete Vitest gate passed 110 tests with 1 existing skip; its production webpack build, including TypeScript and all 28 static pages, exited 0. GitHub main also contained 7ae1c50 (daily status, verified screening and seven-part briefing); the continuation merges those features rather than replacing them. The optional overnight panel, TECHNICAL role and strict numeric quota validation are integrated with that existing main surface. The combined version receives fresh tests and a webpack build before its main publication. Five specialist roles share one model; they are not five independent models.
