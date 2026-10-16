@@ -26,7 +26,11 @@ export function parseOvernight(value:unknown):OvernightResearch {
    typeof row.completeness_pct!=="number" || !Number.isFinite(row.completeness_pct) || row.completeness_pct<0 || row.completeness_pct>100 ||
    !Array.isArray(row.missing_fields) || !row.missing_fields.every(x=>typeof x==="string")) return fail();
   for(const group of ["financial","quant","macro"]){
-   if(!object(row[group]) || !Object.values(row[group]).every(finite)) return fail();
+   if(!object(row[group]) || !Object.entries(row[group]).every(([key,metric])=>
+    finite(metric) || (
+     group==="financial" && key==="forward_pe_normalized_basis" &&
+     metric==="MODEL_RUNRATE_ESTIMATE"
+    ))) return fail();
   }
  }
  return value as unknown as OvernightResearch;

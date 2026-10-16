@@ -4,6 +4,7 @@ import { HermesShell } from "./hermes-shell";
 import { parseCouncilSnapshot, parseCouncilArchive, explainRiskMessage, type CouncilSnapshot, type CouncilMessage, type CouncilArchive } from "../lib/os/council";
 import { team, humanText, messageText, messageDetails, stance, confidence, archiveDecision, decisionLabel, symbolFor, companyName, time, money, sourceFigures } from "../lib/os/council-presentation";
 import { TopOpportunities } from "./top-opportunities";
+import { rememberVerifiedCouncilSnapshot, restoreVerifiedCouncilSnapshot } from "../lib/os/council-session-cache";
 import styles from "./council-dashboard.module.css";
 
 export function CouncilMessageBubble({message,messages,archive,currency="USD"}:{message:CouncilMessage;messages:CouncilMessage[];archive?:CouncilArchive;currency?:string}) {
@@ -49,8 +50,20 @@ export function CouncilDashboard({active="onderzoek"}:{active?:"onderzoek"|"trad
   async function refresh(){try{
    const response=await fetch("/api/os/council",{cache:"no-store",signal:controller.signal});
    if(!response.ok) throw new Error("De actuele gegevens zijn tijdelijk niet bereikbaar.");
-   const next=parseCouncilSnapshot(await response.json());if(active){setData(next);setError("");}
-  }catch{if(active)setError("De actuele gegevens zijn tijdelijk niet bereikbaar. Opgeslagen informatie kan verouderd zijn.");}}
+   const next=parseCouncilSnapshot(await response.json());
+   if(active){
+    setData(next);setError("");
+    rememberVerifiedCouncilSnapshot(sessionStorage, next);
+   }
+  }catch{
+   if(active){
+    const last = restoreVerifiedCouncilSnapshot(sessionStorage);
+    if(last) setData(old=>old??last.snapshot);
+    setError(last
+     ? "De live verbinding is tijdelijk niet beschikbaar. Je ziet eerder opgeslagen onderzoeksgegevens; nieuwe opdrachten zijn uitgeschakeld."
+     : "De actuele onderzoeksgegevens zijn tijdelijk niet bereikbaar. Probeer de pagina opnieuw.");
+   }
+  }}
   void refresh();const timer=setInterval(()=>void refresh(),30_000);
   return()=>{active=false;controller.abort();clearInterval(timer);};
  },[]);
@@ -98,7 +111,7 @@ export function CouncilDashboard({active="onderzoek"}:{active?:"onderzoek"|"trad
     <aside className={styles.conversations} aria-label="Onderzoeken"><div className={styles.listHeading}><h2>Gesprekken <span>{cases.length}</span></h2><label className={styles.srOnly} htmlFor="conversation-search">Zoek een onderzoek</label><input id="conversation-search" placeholder="Zoek bedrijf of aandeel" value={search} onChange={e=>setSearch(e.target.value)}/></div>
      <div className={styles.conversationList}>{filtered.map(c=>{const s=symbolFor(c.instrument_id);const a=archives[c.case_id];const last=a?.messages.at(-1);const decision=archiveDecision(a);
       return <button type="button" className={styles.conversation} key={c.case_id} onClick={()=>{setCaseId(c.case_id);setMobileChatOpen(true);}} aria-current={caseId===c.case_id?"true":undefined}><span className={styles.companyAvatar}>{s.slice(0,2)}</span><span className={styles.conversationBody}><span className={styles.conversationTitle}><strong>{companyName(s,c.name||data?.stocks.find(x=>x.symbol===s)?.name)}</strong><small>{time(c.generated_at)}</small></span><span className={styles.conversationMeta}>{s}<span className={styles.outcome} data-outcome={String(decision.decision||c.decision||"")}>{decision.decision||c.decision?decisionLabel(decision.decision||c.decision):c.status==="RESEARCH_COMPLETE"?"Afgerond":c.status==="RESEARCH_FAILED"?"Niet afgerond":"In onderzoek"}</span></span><span className={styles.preview}>{last?messageText(last):c.text_nl?humanText(c.text_nl):"Het opgeslagen gesprek wordt opgehaald…"}</span></span></button>;})}
-      {!cases.length?<p className={styles.empty}>{data?"Er zijn nog geen opgeslagen onderzoeken.":"Onderzoeken laden…"}</p>:!filtered.length?<p className={styles.empty}>Geen onderzoek gevonden.</p>:null}
+      {!cases.length?<p className={styles.empty}>{data?"Er zijn nog geen opgeslagen onderzoeken.":error?"De onderzoeksraad kan momenteel niet worden geladen. Probeer het opnieuw.":"Onderzoeken laden…"}</p>:!filtered.length?<p className={styles.empty}>Geen onderzoek gevonden.</p>:null}
      </div></aside>
     <section className={styles.thread} aria-label="Groepsgesprek">
      <button className={styles.mobileBack} type="button" onClick={()=>setMobileChatOpen(false)}>← Terug naar overzicht</button>

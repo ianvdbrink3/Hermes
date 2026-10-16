@@ -45,3 +45,28 @@ it.each([
 ])("formats measured source field %s with documented units",(key,value,expected)=>{
  expect(formatResearchMetric(String(key),Number(value),"USD")).toBe(expected);
 });
+
+it("accepts a traceable normalized forward multiple but no arbitrary financial strings", () => {
+ const asOf = "2026-10-16T21:04:28.971394+00:00";
+ const row = {
+  symbol:"LNG",name:"Cheniere Energy",currency:"USD",
+  score:64.5,valuation_score:62,quality_score:58,momentum_score:65,
+  completeness_pct:100,missing_fields:[],
+  financial:{
+   forward_pe_consensus:null,forward_pe_normalized:11.5,
+   forward_pe_normalized_basis:"MODEL_RUNRATE_ESTIMATE"
+  },
+  quant:{price:234},macro:{vix:17}
+ };
+ const snapshot = {
+  schema_version:1,generated_at:asOf,
+  counts:{verified_universe:1,enriched:1,complete:1},
+  ranking:[row],top_opportunities:[row]
+ };
+ expect(parseOvernight(snapshot).ranking[0].financial.forward_pe_normalized).toBe(11.5);
+ expect(()=>parseOvernight({
+  ...snapshot,ranking:[{...row,financial:{
+   ...row.financial,forward_pe_normalized_basis:"PROVIDER_CONSENSUS"
+  }}]
+ })).toThrow("Ongeldige nachtelijke onderzoeksgegevens");
+});
