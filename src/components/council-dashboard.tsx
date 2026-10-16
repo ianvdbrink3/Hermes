@@ -1,332 +1,133 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { TopOpportunities } from "./top-opportunities";
 import { HermesShell } from "./hermes-shell";
-import { parseCouncilSnapshot, type CouncilSnapshot, type CouncilMessage, type CouncilArchive, parseCouncilArchive, explainRiskMessage, parseCouncilOpportunities, type CouncilOpportunities, parseCouncilBriefing, type CouncilBriefing } from "@/lib/os/council";
+import { parseCouncilSnapshot, parseCouncilArchive, explainRiskMessage, type CouncilSnapshot, type CouncilMessage, type CouncilArchive } from "../lib/os/council";
+import { team, humanText, messageText, messageDetails, stance, confidence, archiveDecision, decisionLabel, symbolFor, companyName, time, money, sourceFigures } from "../lib/os/council-presentation";
+import { TopOpportunities } from "./top-opportunities";
 import styles from "./council-dashboard.module.css";
 
-const names: Record<string,string> = { FUNDAMENTAL:"Bedrijfsanalist",MACRO:"Economie",
- QUANT:"Kwantitatief analist",TECHNICAL:"Technisch analist",SENTIMENT:"Nieuws en verwachtingen",CIO:"Hoofdbeslisagent",
- USER:"Jij",SYSTEM:"Systeem",RISK:"Risicocontrole"};
-const initials: Record<string,string> = { FUNDAMENTAL:"B",MACRO:"E",QUANT:"K",TECHNICAL:"T",
- SENTIMENT:"N",CIO:"H",USER:"J",SYSTEM:"S",RISK:"R"};
-function time(value:string) {
- return new Intl.DateTimeFormat("nl-NL",{dateStyle:"medium",timeStyle:"short",timeZone:"Europe/Amsterdam"}).format(new Date(value));
-}
-function money(value:string|null|undefined) {
- return value == null ? "Nog niet beschikbaar" : new Intl.NumberFormat("nl-NL",{style:"currency",currency:"USD"}).format(Number(value));
-}
-function percentage(value:string|null|undefined) {
- return value == null ? "Nog niet beschikbaar" : new Intl.NumberFormat("nl-NL",{style:"percent",maximumFractionDigits:2}).format(Number(value));
-}
-function Message({message,messages}:{message:CouncilMessage;messages:CouncilMessage[]}) {
- let explanation = message.role==="RISK" ? explainRiskMessage(message.text_nl) : message.text_nl;
- let details: Record<string,unknown> | null = null;
- try {
-   const parsed:unknown=JSON.parse(message.text_nl);
-   if (parsed && typeof parsed==="object" && !Array.isArray(parsed) &&
-       typeof (parsed as Record<string,unknown>).text_nl==="string") {
-     details=parsed as Record<string,unknown>; explanation=details.text_nl as string;
-   }
- } catch { /* User and service messages are ordinary text. */ }
+export function CouncilMessageBubble({message,messages,archive,currency="USD"}:{message:CouncilMessage;messages:CouncilMessage[];archive?:CouncilArchive;currency?:string}) {
+ const person=team[message.role]||team.SYSTEM;
+ const d=messageDetails(message);
  const target=messages.find(m=>m.message_id===message.reply_to);
- let targetText=target?.text_nl || "";
- try {const parsed=JSON.parse(targetText); targetText=parsed.text_nl || targetText;} catch {}
- return <article id={"message-"+message.message_id} className={styles.message} data-user={message.role==="USER"}>
-   <span className={styles.avatar} aria-hidden="true">{initials[message.role]}</span>
-   <div className={styles.bubble}>
-     <header><strong>{names[message.role] || message.role}</strong>
-       <time dateTime={message.generated_at}>{time(message.generated_at)}</time></header>
-     {message.reply_to ? <a className={styles.reply} href={"#message-"+message.reply_to}>
-       {target ? names[target.role]+": "+targetText.slice(0,180) : "Doelbericht staat in het volledige onderzoeksarchief"}</a> : null}
-     <p>{explanation}</p>
-     {details ? <details><summary>Feiten, uitleg en onzekerheid</summary>
-       {Array.isArray(details.facts) ? <><h4>Feiten uit de bronnen</h4><ul>{details.facts.filter((x):x is string=>typeof x==="string").map((fact,i)=><li key={i}>{fact}</li>)}</ul></> : null}
-       <h4>Wat betekent dit?</h4><p>{typeof details.interpretation==="string" ? details.interpretation : "Geen uitleg opgeslagen."}</p>
-       <h4>Wat weten we nog niet?</h4><p>{typeof details.uncertainty==="string" ? details.uncertainty : "Geen toelichting opgeslagen."}</p>
-     </details> : null}
-   </div>
+ const followup=/message:(?:CHAT|VERIFY):/.test(message.request_key||message.message_id)||target?.role==="USER";
+ const sources=archive?.evidence.sources.filter(s=>message.evidence_refs.includes(s.source_hash)) || [];
+ const facts=Array.isArray(d.facts)?d.facts.filter((f):f is string=>typeof f==="string"):[];
+ const figures=sources.flatMap(s=>sourceFigures(s.content,currency));
+ return <article id={"message-"+message.message_id} className={styles.message} data-user={message.role==="USER"} data-decision={message.role==="CIO"||message.role==="RISK"}>
+  <span className={styles.avatar} style={{background:person.color,color:"white"}} aria-hidden="true">{person.initials}</span>
+  <div className={styles.bubble}><header><div><strong style={{color:person.color}}>{person.name}</strong><span className={styles.role}>{person.role}</span></div><time dateTime={message.generated_at}>{time(message.generated_at)}</time></header>
+  {target?<a className={styles.reply} href={"#message-"+target.message_id}><strong>{(team[target.role]||team.SYSTEM).name}</strong><span>{messageText(target).slice(0,190)}</span></a>:message.reply_to?<div className={styles.reply}>Reactie op een eerder opgeslagen bericht</div>:null}
+  {(stance(d)||confidence(d))?<div className={styles.messageBadges}><span>{stance(d)}</span><span>{confidence(d)}</span></div>:null}
+  {message.role==="CIO"&&d.decision&&!followup?<strong className={styles.decisionLabel}>{decisionLabel(d.decision)}</strong>:null}
+  <p>{messageText(message)}</p>
+  {!followup&&(typeof d.trigger_price==="number"||typeof d.trigger_price==="string")?<p className={styles.trigger}>Herbeoordelen bij {money(d.trigger_price,currency)}</p>:null}
+  {(facts.length||sources.length||typeof d.interpretation==="string"||typeof d.uncertainty==="string")?<details><summary>Toon broncijfers</summary>
+   {facts.length?<ul>{facts.map((fact,i)=><li key={i}>{humanText(fact)}</li>)}</ul>:null}
+   {typeof d.interpretation==="string"?<><h4>De afweging</h4><p>{humanText(d.interpretation)}</p></>:null}
+   {typeof d.uncertainty==="string"?<><h4>Onzekerheden</h4><p>{humanText(d.uncertainty)}</p></>:null}
+   {figures.length?<dl className={styles.sourceFacts}>{figures.map((f,i)=><div key={i}><dt>{f.label}</dt><dd>{f.value}</dd></div>)}</dl>:null}
+   {sources.map((source,i)=><p key={source.source_hash}><a href={/^https?:\/\//.test(source.url)?source.url:undefined} target="_blank" rel="noreferrer">Bron {i+1} · {(team[source.role]||team.SYSTEM).role}</a><br/><small>Gepubliceerd {time(source.published_at)} · geraadpleegd {time(source.retrieved_at)}</small></p>)}
+  </details>:null}
+  </div>
  </article>;
 }
-
 export function CouncilDashboard({active="onderzoek"}:{active?:"onderzoek"|"trading"}) {
  const [data,setData]=useState<CouncilSnapshot|null>(null);
  const [error,setError]=useState("");
- const [tab,setTab]=useState<"report"|"agents"|"chat"|"stocks"|"opportunities">("report");
- const [opportunities,setOpportunities]=useState<CouncilOpportunities|null>(null);
- const [opportunitiesError,setOpportunitiesError]=useState("");
- const [briefing,setBriefing]=useState<CouncilBriefing|null>(null);
- const [briefingError,setBriefingError]=useState("");
- const [question,setQuestion]=useState("");
+ const [archives,setArchives]=useState<Record<string,CouncilArchive>>({});
+ const [archiveErrors,setArchiveErrors]=useState<Record<string,string>>({});
  const [caseId,setCaseId]=useState("");
- const [archive,setArchive]=useState<CouncilArchive|null>(null);
- const [archiveError,setArchiveError]=useState("");
- const [reportDate,setReportDate]=useState("");
+ const [search,setSearch]=useState("");
+ const [question,setQuestion]=useState("");
  const [sending,setSending]=useState(false);
  const [sendError,setSendError]=useState("");
- const [cursor,setCursor]=useState("0");
- const [search,setSearch]=useState("");
- const [searchDraft,setSearchDraft]=useState("");
- const request=useRef<{text:string;key:string}|null>(null);
+ const request=useRef<{text:string;caseId:string;key:string}|null>(null);
  useEffect(()=>{
-   const selected=new URLSearchParams(window.location.search).get("case");
-   if(selected && /^[A-Za-z0-9:_./-]{1,160}$/.test(selected)) {setCaseId(selected);setTab("agents");}
- },[]);
-
- useEffect(()=>{
-   const controller=new AbortController();
-   let active=true;
-   let inFlight=false;
-   async function refresh() {
-     if(inFlight) return;
-     inFlight=true;
-     try {
-       const response=await fetch("/api/os/council?"+new URLSearchParams({cursor,q:search}),{cache:"no-store",signal:controller.signal});
-       if(!response.ok) throw new Error("De onderzoeksraad is nog niet bereikbaar. De actuele status is onbekend.");
-       const next=parseCouncilSnapshot(await response.json());
-       if(active) {setData(next);setError("");}
-     } catch(e) {
-       if(active) setError(e instanceof Error?e.message:"Gegevens ophalen is mislukt.");
-     } finally {inFlight=false;}
-   }
-   void refresh();
-   const timer=setInterval(()=>void refresh(),30_000);
-   return ()=>{active=false;controller.abort();clearInterval(timer);};
- },[cursor,search]);
- useEffect(()=>{
-   const controller=new AbortController();
-   async function refreshOpportunities() {
-     try {
-       const response=await fetch("/api/os/council/opportunities",{cache:"no-store",signal:controller.signal});
-       if(!response.ok) throw new Error("De ranking is momenteel niet verifieerbaar.");
-       const next=parseCouncilOpportunities(await response.json());
-       if(!controller.signal.aborted) {setOpportunities(next);setOpportunitiesError("");}
-     } catch(error) {
-       if(!controller.signal.aborted) setOpportunitiesError(
-         error instanceof Error ? error.message : "De ranking is niet beschikbaar."
-       );
-     }
-   }
-   void refreshOpportunities();
-   const timer=setInterval(()=>void refreshOpportunities(),120_000);
-   return ()=>{controller.abort();clearInterval(timer);};
+  let active=true;const controller=new AbortController();
+  async function refresh(){try{
+   const response=await fetch("/api/os/council",{cache:"no-store",signal:controller.signal});
+   if(!response.ok) throw new Error("De actuele gegevens zijn tijdelijk niet bereikbaar.");
+   const next=parseCouncilSnapshot(await response.json());if(active){setData(next);setError("");}
+  }catch{if(active)setError("De actuele gegevens zijn tijdelijk niet bereikbaar. Opgeslagen informatie kan verouderd zijn.");}}
+  void refresh();const timer=setInterval(()=>void refresh(),30_000);
+  return()=>{active=false;controller.abort();clearInterval(timer);};
  },[]);
  useEffect(()=>{
-   const controller=new AbortController();
-   async function readBriefing() {
-     try {
-       const response=await fetch("/api/os/council/briefing",{cache:"no-store",signal:controller.signal});
-       if(!response.ok) throw new Error("Het 7-delige briefingarchief is nog niet beschikbaar.");
-       const next=parseCouncilBriefing(await response.json());
-       if(!controller.signal.aborted) {setBriefing(next);setBriefingError("");}
-     } catch(error) {
-       if(!controller.signal.aborted) setBriefingError(
-         error instanceof Error ? error.message : "Rapport niet verifieerbaar."
-       );
-     }
-   }
-   void readBriefing();
-   return ()=>controller.abort();
- },[]);
- useEffect(()=>{
-   if(!caseId) {setArchive(null);return;}
-   const controller=new AbortController();
-   async function read() {
-     try {
-       const response=await fetch("/api/os/council/archive?"+new URLSearchParams({case:caseId}),
-           {cache:"no-store",signal:controller.signal});
-       if(!response.ok) throw new Error("Onderzoeksarchief niet bereikbaar.");
-       const result=parseCouncilArchive(await response.json(),caseId);
-       if(!controller.signal.aborted) {setArchive(result);setArchiveError("");}
-     } catch(e) {if(!controller.signal.aborted) {setArchive(null);setArchiveError(e instanceof Error?e.message:"Archief niet bereikbaar.");}}
-   }
-   void read();
-   return ()=>controller.abort();
- },[caseId]);
- async function send(event:FormEvent) {
-   event.preventDefault();
-   const text=(caseId ? "Over onderzoek "+caseId+": " : reportDate ? "Over dagrapport "+reportDate+": " : "")+question.trim();
-   if(!text || sending || !data || error) return;
-   if(!request.current || request.current.text!==text) request.current={text,key:crypto.randomUUID()};
-   setSending(true);setSendError("");
-   try {
-     const response=await fetch("/api/os/council/chat",{
-       method:"POST",headers:{"Content-Type":"application/json"},
-       body:JSON.stringify({text,request_key:request.current.key}),signal:AbortSignal.timeout(125_000)});
-     const result:unknown=await response.json();
-     if(!response.ok) throw new Error(
-       result && typeof result==="object" && "error" in result && typeof result.error==="string"
-       ? result.error : "De CIO kon niet antwoorden. De aanvraag wordt niet automatisch herhaald.");
-     setData(parseCouncilSnapshot(result));setQuestion("");request.current=null;
-   } catch(e) {setSendError(e instanceof Error?e.message:"Antwoord ophalen is mislukt.");}
-   finally {setSending(false);}
+  if(!data?.cases?.length)return;
+  setCaseId(old=>data.cases!.some(c=>c.case_id===old)?old:data.cases!.find(c=>c.case_id===new URLSearchParams(window.location.search).get("case"))?.case_id||data.cases!.at(-1)!.case_id);
+  const controller=new AbortController();
+  const cases=data.cases.filter(c=>!archives[c.case_id]||c.status!=="RESEARCH_COMPLETE"||c.case_id===caseId);
+  async function read(c:{case_id:string}){try{
+   const r=await fetch("/api/os/council/archive?"+new URLSearchParams({case:c.case_id}),{cache:"no-store",signal:controller.signal});
+   if(!r.ok)throw new Error();
+   const a=parseCouncilArchive(await r.json(),c.case_id);
+   if(!controller.signal.aborted){setArchives(prev=>({...prev,[c.case_id]:a}));setArchiveErrors(prev=>({...prev,[c.case_id]:""}));}
+  }catch{if(!controller.signal.aborted)setArchiveErrors(prev=>({...prev,[c.case_id]:"Het gesprek kan momenteel niet worden geladen."}));}}
+  async function batch(){for(let i=0;i<cases.length&&!controller.signal.aborted;i+=3)await Promise.all(cases.slice(i,i+3).map(read));}
+  void batch();return()=>controller.abort();
+ // Archives are loaded once; subsequent snapshots refresh unfinished threads.
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[data?.generated_at]);
+ async function send(event:FormEvent){
+  event.preventDefault();const text=question.trim();if(!text||sending||!caseId||!data)return;
+  if(!request.current||request.current.text!==text||request.current.caseId!==caseId)request.current={text,caseId,key:crypto.randomUUID()};
+  const selected=caseId;setSending(true);setSendError("");
+  try{
+   const response=await fetch("/api/os/council/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text,case_id:selected,request_key:request.current.key}),signal:AbortSignal.timeout(125_000)});
+   if(!response.ok)throw new Error("De CIO kon nu niet antwoorden. Je vraag wordt niet automatisch opnieuw verstuurd.");
+   setData(parseCouncilSnapshot(await response.json()));setQuestion("");request.current=null;
+   const r=await fetch("/api/os/council/archive?"+new URLSearchParams({case:selected}),{cache:"no-store"});
+   if(!r.ok)throw new Error("Het antwoord is ontvangen; het gesprek wordt bij de volgende verversing bijgewerkt.");
+   const a=parseCouncilArchive(await r.json(),selected);setArchives(prev=>({...prev,[selected]:a}));
+  }catch(e){setSendError(e instanceof Error?e.message:"Het antwoord is niet beschikbaar.");}finally{setSending(false);}
  }
- const messages=(tab==="agents" && archive ? archive.messages : data?.messages)?.filter(m=>tab==="chat"
-   ? (m as CouncilMessage & {conversation?:string}).conversation==="owner-chat"
-   : (m as CouncilMessage & {conversation?:string}).conversation!=="owner-chat") || [];
- const count=data?.counts;
- const reports=data?.report_history || [];
- const selectedReport=reportDate ? reports.filter(r=>r.report_date===reportDate).at(-1) : data?.report;
- return <HermesShell active={active} status={error?"Verbinding controleren":data?"Onderzoeksraad · paper":"Onderzoeksraad laden…"} statusTone={error?"warn":"muted"} wide>
-   <div className={styles.heading}><div><span className={styles.eyebrow}>Hermes onderzoeksraad</span>
-     <h1>Volg de analyse. Vraag door.</h1><p>Bekijk wat de analisten vinden, waar zij over twijfelen en waarom de CIO een besluit neemt.</p></div>
-     <span className={styles.badge}>Alleen paper · geen echte orders</span></div>
-   {data && !data.research_active ? <div className={styles.notice}><strong>Research nog niet actief</strong><p>Het register en de status zijn zichtbaar. Agentanalyses en CIO-vragen volgen zodra de operatie is aangesloten en gecontroleerd.</p></div> : null}
-   {error ? <div className={styles.notice} role="alert"><strong>Geen actuele verbinding</strong><p>{error}</p>{data?<p>De gegevens hieronder zijn van {time(data.generated_at)}.</p>:null}</div> : null}
-   <div className={styles.stats}>{[
-     ["In het register",count?.registered,"Ondersteunde Amerikaanse noteringen"],
-     ["Koersregels opgehaald",count?.scanned,"Bronregels; koppeling aan het register wordt apart gecontroleerd"],
-     ["Onderzoeken afgerond",count?.research,"Vijf afzonderlijke specialisten en de CIO"],
-     ["Echte paperdagen",count?.paper_days,"Gecontroleerde dagelijkse portefeuille"],
-   ].map(([label,value,note])=><div key={String(label)}><small>{label}</small><strong>{typeof value==="number"?value.toLocaleString("nl-NL"):"—"}</strong><p>{note}</p></div>)}</div>
-   {typeof count?.matched_registered==="number"?<p>
-     {count.matched_registered.toLocaleString("nl-NL")} noteringen zijn aan een koersregel gekoppeld.
-     {typeof count.source_candidates==="number"?" "+count.source_candidates.toLocaleString("nl-NL")+" kandidaat heeft voldoende bedrijfsidentiteit voor broncontrole.":""}
-     Dit is nog geen afgeronde analyse.
-   </p>:null}
-   <TopOpportunities data={data?.overnight}/>
-   <nav className={styles.tabs} aria-label="Onderzoeksraad">
-     {([["report","Dagrapport"],["agents","Agentoverleg"],["chat","Vraag de CIO"],["stocks","Aandelenregister"],["opportunities","Kansenranking"]] as const).map(([key,label])=>
-       <button key={key} type="button" aria-pressed={tab===key} onClick={()=>setTab(key)}>{label}</button>)}
-   </nav>
-   <section className={styles.panel}>
-   {tab==="report" ? <><h2>Wat heeft Hermes vandaag gedaan?</h2>
-     <h3>Hermes Daily Investment Briefing — 7 onderdelen</h3>
-     {briefingError?<p role="alert">{briefingError}</p>:null}
-     {briefing?<><p>Rapport: {briefing.report_id} · {briefing.status} ·
-       Audit: {briefing.report_hash.slice(0,16)}…</p>
-       {([
-         ["executive_summary","1. Executive Summary"],
-         ["research_universe","2. Research Universe"],
-         ["top_opportunities","3. Top Opportunities"],
-         ["agent_council","4. Agent Council & Debate"],
-         ["portfolio_risk","5. Portfolio & Risk"],
-         ["performance","6. Performance"],
-         ["tomorrow_research_queue","7. Tomorrow's Research Queue"],
-       ] as const).map(([key,label])=><details key={key} open={key==="executive_summary"}>
-         <summary>{label}</summary>
-         {key==="executive_summary"?<p>{String(briefing.sections[key].summary_nl)}</p>:null}
-         {key==="research_universe"?<p>
-           Geregistreerd: {String(briefing.sections[key].registered)} ·
-           Gescand: {String(briefing.sections[key].scanned)} ·
-           CIK-kandidaten: {String(briefing.sections[key].source_candidates)} ·
-           Deep research: {String(briefing.sections[key].deep_research)}
-         </p>:null}
-         {key==="top_opportunities" || key==="tomorrow_research_queue"?
-          <p>Kandidaten: {Array.isArray(briefing.sections[key].items)?
-            briefing.sections[key].items.length : "onbekend"}.
-            Dit is screening; geen koopadvies of geautoriseerde agenttaak.</p>:null}
-         {key==="agent_council"?<p>Agentstatus: {JSON.stringify(briefing.sections[key].agents)}</p>:null}
-         {key==="portfolio_risk"?<p>Paperdag: {String(briefing.sections[key].paper_day)} ·
-           Reconciliatie: {String(briefing.sections[key].reconciliation)}</p>:null}
-         {key==="performance"?<p>Benchmarkstatus: {String(briefing.sections[key].status)} ·
-           Rendement: {typeof briefing.sections[key].hermes_return==="string"?
-             briefing.sections[key].hermes_return:"niet verifieerbaar"}</p>:null}
-         {key==="tomorrow_research_queue"?<p>Planningsstatus:
-           {String(briefing.sections[key].status)}</p>:null}
-       </details>)}
-     </>:<p>Het geverifieerde 7-delige briefingbestand is nog niet beschikbaar.</p>}
-
-     {data?.daily_status?<article className={styles.notice} data-testid="daily-final-status">
-       <strong>Definitieve dagstatus: {data.daily_status.status}</strong>
-       <p>Rapport: {data.daily_status.report_id} · Paperdag: {data.daily_status.paper_day}</p>
-       <p>Gescand: {data.daily_status.counts.scanned?.toLocaleString("nl-NL")??"niet geverifieerd"} ·
-       Eligible: {data.daily_status.counts.eligible?.toLocaleString("nl-NL")??"niet geverifieerd"} ·
-       Deep research: {data.daily_status.counts.deep_research?.toLocaleString("nl-NL")??"niet geverifieerd"}</p>
-       <p>Laatste run: {data.daily_status.latest_run.run_id??"niet geverifieerd"} ·
-       Retry: {data.daily_status.retry.status} ·
-       Volgende retry: {data.daily_status.retry.next_retry_at??"niet vastgesteld"}</p>
-       <p>Agents: {JSON.stringify(data.daily_status.agents)}</p>
-       {data.daily_status.blockers.length?<ul>{data.daily_status.blockers.map((item,i)=>
-        <li key={i}>{item}</li>)}</ul>:null}
-     </article>:<p>Er is nog geen definitief statusbestand voor vandaag.</p>}
-     <label htmlFor="report-date">Rapportarchief</label>
-     <select id="report-date" value={reportDate} onChange={e=>setReportDate(e.target.value)}>
-       <option value="">Vandaag</option>{[...new Set(reports.map(r=>r.report_date).filter(Boolean))].reverse().map(date=>
-         <option key={date} value={date}>{date}</option>)}
-     </select>
-     {selectedReport ? <><p className={styles.lead}>{selectedReport.summary_nl}</p>
-       <p>Rapportdatum: {selectedReport.report_date || "onbekend"}. {selectedReport.report_state==="FINAL"?"Afgesloten dagrapport":selectedReport.report_state==="ERROR"?"Controle mislukt":"Voorlopig dagrapport"}.</p>
-       {selectedReport.decisions.map(d=><article className={styles.decision} key={d.case_id}><strong>{d.case_id}</strong><p>{d.text_nl}</p></article>)}</>
-       : <p>Er is nog geen gecontroleerd dagrapport beschikbaar.</p>}
-     {data?.blockers_nl.length ? <><h3>Wat houdt het onderzoek tegen?</h3><ul>{data.blockers_nl.map((b,i)=><li key={i}>{b}</li>)}</ul></> : null}
-     {data?.job_health?<p>Laatste taak: {data.job_health.phase==="RESEARCH"?"onderzoek":"papercontrole"}.
-       {data.job_health.status==="STARTED"?" Gestart; afronding nog niet bevestigd.":data.job_health.status==="FINISHED"?" Afgerond.":" Mislukt."}</p>:null}
-     {data?.budget.unfinished_attempts?.length?<p>Een modelaanvraag is nog niet bevestigd als afgerond. Geen automatische herhaling.</p>:null}
-     <h3>De oefenportefeuille</h3>
-     {data?.portfolio ? <><div className={styles.stats}>
-       <div><small>Totale waarde</small><strong>{money(data.portfolio.total_value)}</strong><p>Cash en oefenposities samen</p></div>
-       <div><small>Beschikbaar oefengeld</small><strong>{money(data.portfolio.cash)}</strong><p>Geen echt geld</p></div>
-       <div><small>Winst of verlies sinds de start</small><strong>{money(data.pnl_amount)}</strong><p>Inclusief gesimuleerde transactiekosten</p></div>
-     </div><ul>{data.portfolio.holdings.map(h=><li key={h.instrument_id}>{h.instrument_id}: {h.quantity} oefenaandelen</li>)}</ul>
-     {!data.portfolio.holdings.length?<p>Er zijn geen open oefenposities.</p>:null}</>
-       : <p>Er is nog geen gecontroleerde oefendag opgeslagen. Daarom staat hier nog geen portefeuille of rendement.</p>}
-     <h3>Hermes naast de benchmark</h3><p>Hermes: {percentage(data?.metrics?.hermes_return)}. SPY: {percentage(data?.metrics?.benchmark_return)}.</p>
-     <p className={styles.muted}>SPY meet hier alleen koersrendement, zonder dividend. Er is nog geen conclusie over winstgevendheid.</p>
-     {data?.metrics?.missing_metrics_nl.length?<details><summary>Welke metingen ontbreken nog?</summary><ul>{data.metrics.missing_metrics_nl.map((m,i)=><li key={i}>{m}</li>)}</ul></details>:null}
-     <p>Veiligheidsstop: {data?.safety ? data.safety.kill_switch || data.safety.pending ? "aan — nieuwe aanvragen en oefentransacties worden tegengehouden" : "uit" : "onbekend"}.</p>
-     <p className={styles.muted}>Een scan of analyse telt niet als paperdag. De evaluatie volgt pas na voldoende echte, gecontroleerde dagen.</p>
-     <button className={styles.primary} type="button" onClick={()=>setTab("chat")}>Stel een vraag over het rapport</button>
-   </> : null}
-   {tab==="agents" || tab==="chat" ? <>
-     <div className={styles.chatHeading}><div><h2>{tab==="agents"?"Het overleg tussen de analisten":"Jouw gesprek met de CIO"}</h2>
-       <p>{tab==="agents"?"Bedrijfsanalyse, economie, kwantitatieve analyse, technische analyse en nieuws: eerst werkt elke specialist zelfstandig. Daarna volgt het volledige overleg en een besluit van de CIO.":"Vraag naar de afweging, ontbrekende informatie of het dagrapport."}</p></div>
-       {tab==="chat" && data ? <span>{Math.max(0,data.budget.chat_limit-data.budget.chat_consumed)} vragen resterend vandaag</span> : null}</div>
-     {tab==="agents" ? <><label htmlFor="case-select">Kies een onderzoek</label>
-       <select id="case-select" value={caseId} onChange={e=>setCaseId(e.target.value)}>
-         <option value="">Recente berichten</option>{data?.cases?.slice().reverse().map(c=>
-           <option key={c.case_id} value={c.case_id}>{c.instrument_id} · {time(c.generated_at)} · {c.status==="RESEARCH_COMPLETE"?"afgerond":c.status==="RESEARCH_STARTED"?"afronding nog onbekend":c.status==="PRELIMINARY"?"bronnen ontbreken":"mislukt"}</option>)}
-       </select>{archiveError?<p role="alert">{archiveError}</p>:null}
-       {archive && active==="onderzoek"?<details><summary>Originele bronnen en uitgebreide onderbouwing</summary>
-         <p>Dit archief bevat de originele broninhoud. Uitgebreide bronteksten kunnen Engelstalig zijn.</p>
-         {archive.evidence.sources.map(source=><details key={source.source_hash}>
-           <summary>{names[source.role] || source.role} · {source.url}</summary>
-           <p>Gepubliceerd: {time(source.published_at)}. Opgehaald: {time(source.retrieved_at)}.</p>
-           <p>Broncontrole: {source.source_hash}</p><pre style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{source.content}</pre>
-         </details>)}
-       </details>:archive?<p><a href={"/onderzoeksraad?case="+encodeURIComponent(caseId)}>Open de uitgebreide onderbouwing en originele bronnen</a></p>:null}</>:null}
-     <div className={styles.timeline}>{messages.length ? messages.map(m=><Message key={m.message_id} message={m} messages={messages}/>) :
-       <div className={styles.empty}><strong>{tab==="agents"?"Nog geen echte agentgesprekken":"Nog geen gesprek met de CIO"}</strong>
-         <p>{tab==="agents"?"Hier verschijnen uitsluitend opgeslagen berichten van echte aanvragen.":"Je kunt hier een vraag stellen zodra de onderzoeksraad en de bronnen beschikbaar zijn."}</p></div>}</div>
-     {tab==="chat" ? <form onSubmit={send} className={styles.composer}>
-       <label htmlFor="cio-question">Jouw vraag</label>
-       <textarea id="cio-question" value={question} onChange={e=>setQuestion(e.target.value)} maxLength={2000} rows={3}
-         placeholder="Waarom heeft Hermes vandaag gekozen om af te wachten?" disabled={sending}/>
-       <div><small>Een inhoudelijke vraag gebruikt één CIO-aanvraag. Eenvoudige statusvragen gebruiken geen model.</small>
-         <button className={styles.primary} disabled={sending || !data || !data.research_active || Boolean(error) || !question.trim() || data.budget.chat_consumed>=4}>
-           {sending?"CIO denkt na…":"Verstuur vraag"}</button></div>
-       {sendError?<p role="alert">{sendError}</p>:null}
-     </form>:null}
-   </> : null}
-   {tab==="opportunities" ? <>
-     <h2>Brongebonden screeningsranking</h2>
-     <p>Dit zijn koersbewegingen van noteringen met geverifieerde bedrijfsidentiteit.
-     Het zijn geen fundamentele waarderingsscores, koopaanbevelingen of afgeronde analyses.</p>
-     {opportunitiesError?<p role="alert">{opportunitiesError}</p>:null}
-     {opportunities?<><p>Bronstatus: {opportunities.source_status}.
-       Screening: {time(opportunities.generated_at)}. Waardering nog niet berekend.</p>
-       <div className={styles.tableWrap}><table><thead><tr>
-         <th>Symbool</th><th>Beurs</th><th>Absoluut koerssignaal</th>
-         <th>Research confidence</th><th>Waarderingsscore</th>
-       </tr></thead><tbody>{opportunities.items.map(item=><tr key={item.listing_id}>
-         <td>{item.symbol}</td><td>{item.exchange}</td>
-         <td>{item.screening_signal_abs_change}%</td>
-         <td>{item.research_confidence_score} (alleen identiteit)</td>
-         <td>Niet beschikbaar</td></tr>)}</tbody></table></div></>:<p>Nog geen ranking geladen.</p>}
-   </> : null}
-   {tab==="stocks" ? <><h2>Het brede aandelenregister</h2><p>Een vermelding in het register betekent dat Hermes de notering heeft gevonden. Het is nog geen goedgekeurde belegging of afgerond onderzoek.</p>
-     <form onSubmit={e=>{e.preventDefault();setCursor("0");setSearch(searchDraft.trim());}} className={styles.composer}>
-       <label htmlFor="stock-search">Zoek op naam of symbool</label>
-       <input id="stock-search" value={searchDraft} onChange={e=>setSearchDraft(e.target.value)} maxLength={100} placeholder="Bijvoorbeeld ASML of een bedrijfsnaam" />
-       <button className={styles.primary}>Zoek in het volledige register</button>
-     </form>
-     <div className={styles.tableWrap}><table><thead><tr><th>Symbool</th><th>Bedrijf of notering</th><th>Status</th></tr></thead>
-     <tbody>{data?.stocks.map(s=><tr key={s.listing_id}><td>{s.symbol}</td><td>{s.name}</td><td>{s.status_nl}</td></tr>)}</tbody></table></div>
-     {!data?.stocks.length?<p>Er zijn nog geen registerregels beschikbaar.</p>:null}
-     <div className={styles.chatHeading}><button type="button" disabled={Number(cursor)===0} onClick={()=>setCursor(String(Math.max(0,Number(cursor)-100)))}>Vorige 100</button>
-       <span>Pagina {Math.floor(Number(cursor)/100)+1}</span>
-       <button type="button" disabled={!data?.next_cursor} onClick={()=>data?.next_cursor && setCursor(data.next_cursor)}>Volgende 100</button></div>
-   </>:null}
-   </section>
+ const cases=(data?.cases||[]).slice().reverse();
+ const selected=cases.find(c=>c.case_id===caseId);
+ const archive=archives[caseId];
+ const messages=(archive?.messages||[]).slice().sort((a,b)=>Date.parse(a.generated_at)-Date.parse(b.generated_at));
+ const symbol=symbolFor(selected?.instrument_id||"");
+ const name=companyName(symbol,selected?.name||data?.stocks.find(s=>s.symbol===symbol)?.name);
+ const filtered=cases.filter(c=>{const s=symbolFor(c.instrument_id);return (s+" "+companyName(s,c.name||data?.stocks.find(x=>x.symbol===s)?.name)).toLowerCase().includes(search.toLowerCase());});
+ return <HermesShell active={active} status={error?"Verbinding controleren":data?"Alleen oefenhandel":"Gegevens laden…"} statusTone={error?"warn":"muted"} wide>
+  <div className={styles.heading}><div><span className={styles.eyebrow}>Hermes · jouw beleggingsteam</span><h1>{active==="trading"?"Portefeuille & handel":"De onderzoeksraad"}</h1><p>{active==="trading"?"Je oefenportefeuille, koopvoorwaarden en dagelijkse controles op één plek.":"Lees mee met je analisten. Volg hun afwegingen en vraag door in hetzelfde gesprek."}</p></div><span className={styles.badge}>Paper · geen echte orders</span></div>
+  {error?<div className={styles.notice} role="alert">{error}{data?<p>Laatst ontvangen: {time(data.generated_at)}</p>:null}</div>:null}
+  {active==="trading"?<TradingContent data={data} archives={archives}/>:<>
+   <div className={styles.workspace}>
+    <aside className={styles.conversations} aria-label="Onderzoeken"><div className={styles.listHeading}><h2>Gesprekken <span>{cases.length}</span></h2><label className={styles.srOnly} htmlFor="conversation-search">Zoek een onderzoek</label><input id="conversation-search" placeholder="Zoek bedrijf of aandeel" value={search} onChange={e=>setSearch(e.target.value)}/></div>
+     <div className={styles.conversationList}>{filtered.map(c=>{const s=symbolFor(c.instrument_id);const a=archives[c.case_id];const last=a?.messages.at(-1);const decision=archiveDecision(a);
+      return <button type="button" className={styles.conversation} key={c.case_id} onClick={()=>setCaseId(c.case_id)} aria-current={caseId===c.case_id?"true":undefined}><span className={styles.companyAvatar}>{s.slice(0,2)}</span><span className={styles.conversationBody}><span className={styles.conversationTitle}><strong>{companyName(s,c.name||data?.stocks.find(x=>x.symbol===s)?.name)}</strong><small>{time(c.generated_at)}</small></span><span className={styles.conversationMeta}>{s}<span className={styles.outcome} data-outcome={String(decision.decision||c.decision||"")}>{decision.decision||c.decision?decisionLabel(decision.decision||c.decision):c.status==="RESEARCH_COMPLETE"?"Afgerond":c.status==="RESEARCH_FAILED"?"Niet afgerond":"In onderzoek"}</span></span><span className={styles.preview}>{last?messageText(last):c.text_nl?humanText(c.text_nl):"Het opgeslagen gesprek wordt opgehaald…"}</span></span></button>;})}
+      {!cases.length?<p className={styles.empty}>{data?"Er zijn nog geen opgeslagen onderzoeken.":"Onderzoeken laden…"}</p>:!filtered.length?<p className={styles.empty}>Geen onderzoek gevonden.</p>:null}
+     </div></aside>
+    <section className={styles.thread} aria-label="Groepsgesprek">
+     {selected?<><header className={styles.threadHeader}><span className={styles.companyAvatar}>{symbol.slice(0,2)}</span><div><h2>{name} <small>{symbol}</small></h2><p>Lucas, Eva, Daan, Mila, Sam · CIO & Victor</p></div><span className={styles.outcome}>{decisionLabel(archiveDecision(archive).decision)}</span></header>
+      <div className={styles.chatTimeline} aria-live="polite"><div className={styles.historyNote}>Opgeslagen onderzoek van {time(selected.generated_at)} · namen zijn de herkenbare rollen van je AI-team</div>{archiveErrors[caseId]?<p role="alert" className={styles.notice}>{archiveErrors[caseId]}</p>:null}
+       {messages.map(m=><CouncilMessageBubble key={m.message_id} message={m} messages={messages} archive={archive} currency={data?.overnight?.ranking.find(r=>r.symbol===symbol)?.currency||"USD"}/>)}
+       {!messages.length?<p className={styles.empty}>{archive?"Dit onderzoek heeft nog geen opgeslagen berichten.":"Gesprek laden…"}</p>:null}
+      </div>
+      <form className={styles.threadComposer} onSubmit={send}><label htmlFor="cio-question">Vraag door over {symbol}</label><div><textarea id="cio-question" rows={2} maxLength={2000} placeholder="Stel een vraag aan de CIO of één van de analisten over dit aandeel…" value={question} onChange={e=>setQuestion(e.target.value)} disabled={sending}/><button className={styles.primary} disabled={sending||!data?.research_active||!question.trim()||Boolean(error)||(data?.budget.chat_consumed||0)>=(data?.budget.chat_limit||4)}>{sending?"CIO denkt na…":"Verstuur ↗"}</button></div><small>{data?Math.max(0,data.budget.chat_limit-data.budget.chat_consumed):"—"} vragen vandaag over · de CIO beantwoordt je vraag met de opgeslagen onderzoekscontext.</small>{sendError?<p role="alert">{sendError}</p>:null}</form>
+     </>:<div className={styles.empty}>Kies een onderzoek om het teamgesprek te openen.</div>}
+    </section>
+   </div>
+   <details className={styles.universeSummary}><summary>Onderzoeksbereik · {data?.counts.registered.toLocaleString("nl-NL")||"—"} noteringen → {data?.overnight?.counts.enriched.toLocaleString("nl-NL")||"—"} verrijkt → {data?.overnight?.top_opportunities?.length||Math.min(10,data?.overnight?.ranking.length||0)} kansen</summary><TopOpportunities data={data?.overnight}/></details>
+  </>}
  </HermesShell>;
+}
+function TradingContent({data,archives}:{data:CouncilSnapshot|null;archives:Record<string,CouncilArchive>}){
+ const seen=new Set<string>();
+ const watchlist=(data?.cases||[]).slice().sort((a,b)=>Date.parse(b.generated_at)-Date.parse(a.generated_at)).filter(c=>{const symbol=symbolFor(c.instrument_id);if(seen.has(symbol))return false;seen.add(symbol);return true;}).map(c=>({c,decision:archiveDecision(archives[c.case_id])})).filter(({decision})=>decision.decision==="WATCHLIST");
+ const holdings=data?.portfolio?.holdings||[];
+ const positions=data?.paper_portfolio?.positions||[];
+ const journal=data?.paper_portfolio?.paper_journal||[];
+ return <>
+  <div className={styles.stats}>{[
+   ["Portefeuillewaarde",money(data?.portfolio?.total_value),"Cash en posities samen"],
+   ["Beschikbare cash",money(data?.portfolio?.cash),"Beschikbaar voor oefenposities"],
+   ["Open posities",data?.portfolio?String(holdings.length):"—","Resultaat: "+money(data?.pnl_amount)],
+   ["Validatiestatus",data?data.counts.paper_days+" / 20":"—","Gecontroleerde paperdagen voltooid"],
+  ].map(([label,value,note])=><div key={label}><small>{label}</small><strong>{value}</strong><p>{note}</p></div>)}</div>
+  <section className={styles.panel}><h2>Actieve oefenposities</h2>{positions.length?<div className={styles.tableWrap}><table><thead><tr><th>Aandeel</th><th>Aantal</th><th>Gemiddeld gekocht</th><th>Laatste koers</th><th>Positiewaarde</th><th>Ongerealiseerd resultaat</th></tr></thead><tbody>{positions.map(p=><tr key={p.symbol}><td>{companyName(p.symbol)} <small>{p.symbol}</small></td><td>{Number(p.quantity).toLocaleString("nl-NL")}</td><td>{money(p.average_cost,p.currency)}</td><td>{money(p.market_price,p.currency)}</td><td>{money(p.market_value,p.currency)}</td><td>{money(p.unrealized_pnl,p.currency)}</td></tr>)}</tbody></table></div>:holdings.length?<div className={styles.tableWrap}><table><thead><tr><th>Aandeel</th><th>Aantal</th></tr></thead><tbody>{holdings.map(h=><tr key={h.instrument_id}><td>{symbolFor(h.instrument_id)}</td><td>{Number(h.quantity).toLocaleString("nl-NL")}</td></tr>)}</tbody></table></div>:<p>{data?.portfolio?"Er zijn geen open posities. De portefeuille bestaat uit cash.":"De portefeuille is nog niet beschikbaar."}</p>}{data?.paper_portfolio?.observed_at?<p className={styles.muted}>Portefeuillecontrole: {time(data.paper_portfolio.observed_at)}</p>:null}</section>
+  <section className={styles.panel}><h2>Volglijst & koopvoorwaarden</h2><p className={styles.muted}>Een herbeoordelingsprijs is een aanleiding voor nieuw onderzoek, geen automatische koopopdracht.</p><div className={styles.tableWrap}><table><thead><tr><th>Aandeel</th><th>Herbeoordelen bij</th><th>Afstand tot laatste slotkoers</th><th>Onderzoek</th></tr></thead><tbody>{watchlist.map(({c,decision})=>{const s=symbolFor(c.instrument_id);const market=data?.overnight?.ranking.find(r=>r.symbol===s);const price=market?.quant.price;const trigger=Number(decision.trigger_price);return <tr key={c.case_id}><td>{companyName(s)} <small>{s}</small></td><td>{money(decision.trigger_price,market?.currency||"USD")}</td><td>{price&&Number.isFinite(trigger)?new Intl.NumberFormat("nl-NL",{style:"percent",maximumFractionDigits:1}).format(trigger/price-1):"Laatste slotkoers niet beschikbaar"}{market?.quote_asof?<><br/><small>Slotkoers van {market.quote_asof}</small></>:null}</td><td><a href={"/onderzoeksraad?case="+encodeURIComponent(c.case_id)}>Bekijk gesprek ↗</a></td></tr>;})}</tbody></table></div>{!watchlist.length?<p>Er zijn nog geen opgeslagen volglijstvoorwaarden geladen.</p>:null}</section>
+  <section className={styles.panel}><h2>Paperjournaal & risicocontrole</h2><div className={styles.tableWrap}><table><thead><tr><th>Datum</th><th>Dagcontrole</th><th>Oefentransactie</th><th>Portefeuillewaarde</th><th>Risicocontrole</th></tr></thead><tbody>{journal.map((j,i)=><tr key={j.date+i}><td>{j.date}</td><td>{humanText(j.status_nl)}</td><td>{j.transaction?<>{j.transaction.side==="BUY"?"Aankoop":j.transaction.side==="SELL"?"Verkoop":"Oefentransactie"} {j.transaction.quantity} {j.transaction.symbol} · {money(j.transaction.fill_price)}<br/><small>Kosten: {money(j.transaction.cost)}</small></>:"Geen transactie"}</td><td>{money(j.portfolio_value)}</td><td>{j.risk_status==="APPROVE"?"Binnen risicogrenzen":j.risk_status==="BLOCK"||j.risk_status==="VETO"?"Afgewezen door risicocontrole":j.risk_status==="RESIZE"?"Omvang aangepast":"Geen transactie beoordeeld"}{j.risk_reasons.length?<p>{j.risk_status==="BLOCK"||j.risk_status==="VETO"?explainRiskMessage("De risicocontrole geeft BLOCK. Redenen: "+j.risk_reasons.join(",")+". Voorgestelde oefenhoeveelheid: 0."):humanText(j.risk_reasons.join(". "))}</p>:null}</td></tr>)}</tbody></table></div>{!journal.length?<p>Er zijn nog geen dagcontroles in dit overzicht geladen.</p>:null}{data?.report_history?.length?<details><summary>Opgeslagen dagrapporten</summary>{data.report_history.map((r,i)=><p key={i}>{r.report_date} · {humanText(r.summary_nl)}</p>)}</details>:null}<p className={styles.muted}>Veiligheidsstop: {data?.safety?(data.safety.kill_switch||data.safety.pending?"actief":"niet actief"):"onbekend"}. De portefeuille toont uitsluitend opgeslagen oefentransacties.</p></section>
+ </>;
 }

@@ -9,11 +9,12 @@ export async function POST(request:NextRequest) {
    const data:unknown=JSON.parse(raw);
    if(!data || typeof data!=="object" || Array.isArray(data)) throw new Error("invalid");
    const value=data as Record<string,unknown>;
-   if(Object.keys(value).some(k=>!["text","request_key"].includes(k)) ||
+   if(Object.keys(value).some(k=>!["text","request_key","case_id"].includes(k)) ||
+      (value.case_id!==undefined && (typeof value.case_id!=="string" || !/^[A-Za-z0-9:_./-]{1,160}$/.test(value.case_id))) ||
       typeof value.text!=="string" || !value.text.trim() || value.text.length>2000 ||
       typeof value.request_key!=="string" || !/^[a-zA-Z0-9_-]{1,80}$/.test(value.request_key))
      return NextResponse.json({error:"Vul een vraag van maximaal 2.000 tekens in."},{status:400});
-   const result=await councilRequest("chat",{text:value.text.trim(),request_key:value.request_key});
+   const result=await councilRequest("chat",{text:value.text.trim(),request_key:value.request_key,...(value.case_id ? {case_id:value.case_id} : {})});
    return NextResponse.json(parseCouncilSnapshot(result),{headers:{"Cache-Control":"no-store"}});
  } catch {
    return NextResponse.json({error:"De CIO kon geen antwoord leveren. Er wordt geen extra aanvraag gestart. Controleer het gesprek en het resterende dagbudget."},

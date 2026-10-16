@@ -3,11 +3,11 @@ export type Opportunity = {
  symbol:string; name:string; currency:string; score:number|null;
  valuation_score:number|null; quality_score:number|null; momentum_score:number|null;
  completeness_pct:number; financial:ResearchMetrics; quant:ResearchMetrics; macro:ResearchMetrics;
- missing_fields:string[];
+ missing_fields:string[]; quote_asof?:string; quote_basis?:string; sector?:string; sector_source?:string; geography?:string;
 };
 export type OvernightResearch = {
  schema_version:1; generated_at:string; counts:{verified_universe:number;enriched:number;complete:number};
- ranking:Opportunity[]; status?:string; morning_report?:string;
+ ranking:Opportunity[]; top_opportunities?:Opportunity[]; status?:string; morning_report?:string;
 };
 const object=(v:unknown):v is Record<string,unknown>=>Boolean(v && typeof v==="object" && !Array.isArray(v));
 const finite=(v:unknown)=>v===null || typeof v==="number" && Number.isFinite(v);
@@ -19,7 +19,8 @@ export function parseOvernight(value:unknown):OvernightResearch {
  if(!["verified_universe","enriched","complete"].every(k=>typeof c[k]==="number" && Number.isSafeInteger(c[k]) && c[k]>=0) ||
   Number(c.complete)>Number(c.enriched) || Number(c.enriched)>Number(c.verified_universe)) return fail();
  if(value.status!==undefined && typeof value.status!=="string" || value.morning_report!==undefined && typeof value.morning_report!=="string") return fail();
- for(const row of value.ranking){
+ if(value.top_opportunities!==undefined && (!Array.isArray(value.top_opportunities)||value.top_opportunities.length>10))return fail();
+ for(const row of [...value.ranking,...(Array.isArray(value.top_opportunities)?value.top_opportunities:[])]){
   if(!object(row) || !["symbol","name","currency"].every(k=>typeof row[k]==="string" && row[k]!=="") ||
    !/^[A-Z]{3}$/.test(String(row.currency)) || !["score","valuation_score","quality_score","momentum_score"].every(k=>finite(row[k])) ||
    typeof row.completeness_pct!=="number" || !Number.isFinite(row.completeness_pct) || row.completeness_pct<0 || row.completeness_pct>100 ||

@@ -1,6 +1,6 @@
 import { parseOvernight, type OvernightResearch } from "./overnight";
 export type CouncilMessage = {
-  message_id: string; role: string; text_nl: string; generated_at: string;
+  message_id: string; request_key?:string; role: string; text_nl: string; generated_at: string;
   attempt_id: string | null; evidence_refs: string[]; reply_to: string | null; fixture: false;
 };
 export type CouncilReport = {
@@ -31,13 +31,14 @@ export type CouncilSnapshot = {
   daily_status?:CouncilDailyStatus|null;
   report: CouncilReport | null;
   report_history?: CouncilReport[];
-  cases?:{case_id:string;instrument_id:string;generated_at:string;status:string;evidence_hash:string}[];
+  cases?:{case_id:string;instrument_id:string;generated_at:string;status:string;evidence_hash:string;name?:string;text_nl?:string;decision?:string}[];
   job_health?:{status:string;phase:string;started_at:string;finished_at?:string}|null;
   blockers_nl: string[];
-  budget: {total_consumed:number;limit:12|20|30;chat_consumed:number;chat_limit:4;unfinished_attempts?:{case_id:string;role:string;reserved_at:string;status:string}[]};
+  budget: {total_consumed:number;limit:12|20|30|40;chat_consumed:number;chat_limit:4;unfinished_attempts?:{case_id:string;role:string;reserved_at:string;status:string}[]};
   stocks: {listing_id:string;name:string;symbol:string;status_nl:string}[];
   next_cursor: string | null;
   portfolio?: {cash:string;total_value:string;holdings:{instrument_id:string;quantity:string}[]} | null;
+  paper_portfolio?: {observed_at:string|null; positions:{symbol:string;quantity:string;average_cost:string;market_price:string;market_value:string;unrealized_pnl:string;currency:string}[];paper_journal:{date:string;observed_at:string;status_nl:string;transaction:{symbol:string;side:string;quantity:string;fill_price:string;cost:string}|null;risk_status:string|null;risk_reasons:string[];portfolio_value:string;cash:string}[]};
   pnl_amount?: string | null;
   safety?: {kill_switch:boolean;pending:boolean};
   metrics?: {hermes_return:string|null;benchmark_return:string|null;sharpe:string|null;sortino:string|null;
@@ -54,7 +55,7 @@ export function parseCouncilSnapshot(value: unknown): CouncilSnapshot {
       value.fixture !== false || value.live_orders_enabled !== false ||
       typeof value.generated_at !== "string" || !Number.isFinite(Date.parse(value.generated_at)) ||
       !object(value.counts) || !["registered","scanned","research","paper_days"].every(k=>count((value.counts as Record<string,unknown>)[k])) ||
-      !object(value.budget) || typeof value.budget.limit!=="number" || ![12,20,30].includes(value.budget.limit) || value.budget.chat_limit !== 4 ||
+      !object(value.budget) || typeof value.budget.limit!=="number" || ![12,20,30,40].includes(value.budget.limit) || value.budget.chat_limit !== 4 ||
       !count(value.budget.total_consumed) || value.budget.total_consumed > Number(value.budget.limit) ||
       !count(value.budget.chat_consumed) || value.budget.chat_consumed > 4 ||
       !strings(value.blockers_nl) || !Array.isArray(value.messages) ||
@@ -101,6 +102,13 @@ export function parseCouncilSnapshot(value: unknown): CouncilSnapshot {
       !decimal(value.portfolio.cash) || !decimal(value.portfolio.total_value) ||
       !Array.isArray(value.portfolio.holdings) || value.portfolio.holdings.some(h=>!object(h) ||
         typeof h.instrument_id!=="string" || !decimal(h.quantity)))) throw new Error("Ongeldige oefenportefeuille");
+  if(value.paper_portfolio!==undefined) {
+    const paper=value.paper_portfolio;
+    if(!object(paper)||(paper.observed_at!==null&&typeof paper.observed_at!=="string")||!Array.isArray(paper.positions)||!Array.isArray(paper.paper_journal)||
+      paper.positions.some(p=>!object(p)||typeof p.symbol!=="string"||typeof p.currency!=="string"||!/^[A-Z]{3}$/.test(p.currency)||["quantity","average_cost","market_price","market_value","unrealized_pnl"].some(k=>!decimal(p[k])))||
+      paper.paper_journal.some(j=>!object(j)||typeof j.date!=="string"||typeof j.observed_at!=="string"||typeof j.status_nl!=="string"||(j.risk_status!==null&&typeof j.risk_status!=="string")||!strings(j.risk_reasons)||!decimal(j.portfolio_value)||!decimal(j.cash)||
+       (j.transaction!==null&&(!object(j.transaction)||typeof j.transaction.symbol!=="string"||typeof j.transaction.side!=="string"||["quantity","fill_price","cost"].some(k=>!decimal((j.transaction as Record<string,unknown>)[k])))))) throw new Error("Ongeldige paperadministratie");
+  }
   if(value.pnl_amount!==undefined && value.pnl_amount!==null && !decimal(value.pnl_amount)) throw new Error("Ongeldig oefenresultaat");
   if(value.metrics!==undefined && (!object(value.metrics) || typeof value.metrics.status!=="string" ||
      !strings(value.metrics.missing_metrics_nl) || ["hermes_return","benchmark_return","sharpe","sortino"].some(k=>

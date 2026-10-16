@@ -20,7 +20,7 @@ describe("council snapshot", () => {
           {budget:{...valid.budget,total_consumed:13}}])("rejects unsafe provenance %s", change => {
    expect(()=>parseCouncilSnapshot({...valid,...change})).toThrow();
  });
- it.each([12,20,30])("accepts explicitly versioned daily request limit %i", limit=>{
+ it.each([12,20,30,40])("accepts explicitly versioned daily request limit %i", limit=>{
    expect(parseCouncilSnapshot({...valid,budget:{...valid.budget,limit,total_consumed:limit}}).budget.total_consumed).toBe(limit);
  });
  it("rejects any quota beyond the documented maximum",()=>{
@@ -58,7 +58,7 @@ it("accepts the authorized 20-request policy and rejects over-budget use",()=>{
  const budget={...valid.budget,limit:20,total_consumed:13};
  expect(parseCouncilSnapshot({...valid,budget}).budget.limit).toBe(20);
  expect(()=>parseCouncilSnapshot({...valid,budget:{...budget,total_consumed:21}})).toThrow();
- expect(()=>parseCouncilSnapshot({...valid,budget:{...budget,limit:40}})).toThrow();
+ expect(parseCouncilSnapshot({...valid,budget:{...budget,limit:40}}).budget.limit).toBe(40);
 });
 
 it("validates source-bound screening and rejects invented opportunity values",()=>{
