@@ -49,13 +49,13 @@ function signedCookie() {
    await context.addCookies([{name:'hermes_os_session',value:signedCookie(),
      url:origin,httpOnly:true,sameSite:'Lax'}]);
    const page=await context.newPage();
-   await page.route('**/api/os/council*', async route=>{
+   await page.route(/\/api\/os\/council(?:\/|\?|$)/, async route=>{
      const data=route.request().url().includes('/archive?')?archive:snapshot;
      await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});
    });
    const logs=[];
    page.on('pageerror',error=>logs.push(error.message));
-   await page.goto(origin+'/onderzoeksraad',{waitUntil:'domcontentloaded',timeout:1200000});
+   await page.goto(origin+'/onderzoeksraad',{waitUntil:'domcontentloaded',timeout:180000});
    await page.getByRole('button',{name:/Cheniere Energy/}).waitFor({timeout:120000});
    const overflow=()=>page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth);
    assert.equal(await overflow(),true,'council horizontal overflow '+vp.width);
@@ -77,8 +77,8 @@ function signedCookie() {
      assert.equal(await page.getByRole('region',{name:'Groepsgesprek'}).isVisible(),true);
    }
    assert(!/forward_pe:ABSENT_|quote_summary_raw_sha256:/.test(await page.locator('body').innerText()));
-   await page.goto(origin+'/trading',{waitUntil:'domcontentloaded',timeout:1200000});
-   await page.getByText('Portefeuillewaarde').first().waitFor({timeout:120000});
+   await page.goto(origin+'/trading',{waitUntil:'domcontentloaded',timeout:180000});
+   await page.getByText('3 / 20',{exact:true}).waitFor({timeout:120000});
    assert.equal(await overflow(),true,'trading horizontal overflow '+vp.width);
    const body=await page.locator('body').innerText();
    assert(body.includes('100.000'),'synthetic cash not rendered');
@@ -87,7 +87,8 @@ function signedCookie() {
    assert.deepEqual(logs,[],'page errors');
    console.log('PASS',JSON.stringify({viewport:vp,council_overflow:false,trading_overflow:false,
     mobile_chat_transition:vp.width===390?'PASS':'N/A',
-    touch_back_min44:vp.width===390?'PASS':'N/A',debug_strings:'ABSENT',
+    touch_back_min44:vp.width===390?'PASS':'N/A',
+    touch_sources_min44:vp.width===390?'PASS':'N/A',debug_strings:'ABSENT',
     synthetic_fixture:true}));
    await context.close();
   }
