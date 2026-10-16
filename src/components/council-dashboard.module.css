@@ -14,3 +14,30 @@
 @media(max-width:1100px){.workspace{grid-template-columns:275px minmax(0,1fr)}.bubble header{gap:8px;flex-wrap:wrap}.threadHeader{padding:16px}.chatTimeline{padding:18px}.threadComposer{padding:14px}}
 @media(max-width:850px){.workspace{grid-template-columns:240px minmax(0,1fr);min-height:680px}.threadHeader>span.outcome{display:none}.threadHeader p{line-height:1.6}.message{gap:8px}.avatar{width:28px;height:28px;font-size:12px}.bubble{padding:12px}.threadComposer>div{align-items:stretch;flex-direction:column}.threadComposer button{align-self:flex-end}.conversation{padding:15px 10px}.conversation .companyAvatar{display:none}.conversationTitle small{max-width:65px}}
 @media(max-width:620px){.workspace{display:flex;flex-direction:column;height:auto;max-height:none;min-height:0}.conversations{border-right:0;border-bottom:1px solid var(--ui-line)}.listHeading{padding:15px}.listHeading h2{margin-bottom:10px}.conversationList{display:flex;overflow-x:auto;max-height:160px}.conversation{min-width:230px;max-width:250px;border-bottom:0;border-left:0;border-top:3px solid transparent}.conversation[aria-current=true]{border-left:0;border-top-color:var(--ui-accent)}.thread{height:760px;max-height:95dvh;min-height:550px}.chatTimeline{padding:16px 10px}.threadHeader h2{font-size:16px}.threadHeader .companyAvatar{width:34px;height:34px}.historyNote{max-width:100%;font-size:10px}.bubble time{font-size:9px}.message{gap:6px}.role{display:block}.threadComposer{padding:12px}.stats strong{font-size:23px}}
+
+
+/* Mobile chat operates as two exclusive views, not a squeezed desktop split. */
+.mobileBack{display:none}
+.bubble summary{display:flex;align-items:center;min-height:44px;cursor:pointer;touch-action:manipulation}
+.tableWrap{max-width:100%;min-width:0;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;mask-image:linear-gradient(to right,#000 0%,#000 calc(100% - 18px),transparent 100%)}
+.tableWrap table{min-width:600px}
+@media(max-width:767px){
+ .heading{margin-bottom:14px}.workspace{display:block;height:calc(100dvh - 185px);min-height:420px;max-height:none;overflow:hidden;position:relative;min-width:0}
+ .workspace[data-mobile-chat=list] .conversations{display:flex;height:100%;border:0}
+ .workspace[data-mobile-chat=list] .thread{display:none}
+ .workspace[data-mobile-chat=open] .conversations{display:none}
+ .workspace[data-mobile-chat=open] .thread{display:flex;height:100%;max-height:none;min-height:0}
+ .conversationList{display:block;max-height:none;overflow-y:auto;flex:1}
+ .conversation{min-width:0;max-width:none;width:100%;min-height:72px;border-top:0;border-bottom:1px solid var(--ui-line);border-left:3px solid transparent;padding:13px}
+ .conversation[aria-current=true]{border-top:0;border-left:3px solid var(--ui-accent)}
+ .conversation .companyAvatar{display:grid}
+ .mobileBack{display:block;align-self:stretch;text-align:left;min-height:48px;border:0;border-bottom:1px solid var(--ui-line);background:var(--ui-panel);color:var(--ui-accent);font:inherit;font-size:14px;font-weight:700;padding:10px 16px;cursor:pointer}
+ .threadHeader{padding:10px 14px}.chatTimeline{padding:12px;gap:12px;min-height:0}
+ .message{gap:7px;max-width:100%}.message .bubble{max-width:90%;min-width:0;padding:11px 12px}
+ .message .avatar{width:27px;height:27px}.bubble header{gap:6px}
+ .threadComposer{position:sticky;bottom:0;z-index:2;flex-shrink:0;padding:10px 12px;padding-bottom:max(1rem,env(safe-area-inset-bottom));background:var(--ui-panel)}
+ .threadComposer>div{flex-direction:row;align-items:center}.threadComposer textarea{min-width:0;min-height:44px;max-height:100px}.threadComposer button{min-height:44px;padding:9px}
+ .stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.stats>div{min-width:0;padding:12px}.stats strong{font-size:clamp(18px,5vw,26px);overflow-wrap:anywhere}
+ .panel{min-width:0;padding:16px 12px}.tableWrap{max-width:100%}
+ .universeSummary{max-width:100%;overflow:hidden}
+}

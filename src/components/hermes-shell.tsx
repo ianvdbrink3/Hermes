@@ -124,7 +124,7 @@ export function HermesShell({
         <main id="hermes-content" tabIndex={-1} className={styles.main + (wide ? " " + styles.wide : "")}>{children}</main>
       </section>
       <nav className={styles.mobileNav} aria-label="Mobiele hoofdnavigatie">
-        {[...nav, { section: "instellingen", href: "/instellingen", label: "Instellingen", icon: "⚙" }].map(item => <Link key={item.href} href={item.href} aria-current={pathname === item.href ? "page" : undefined}><span aria-hidden="true">{item.icon}</span><span>{item.label}</span></Link>)}
+        {[{ section: "overzicht", href: "/", label: "Overzicht", icon: "◫" }, { section: "onderzoek", href: "/onderzoeksraad", label: "Onderzoeksraad", icon: "◉" }, { section: "trading", href: "/trading", label: "Portefeuille", icon: "↗" }, { section: "instellingen", href: "/instellingen", label: "Instellingen", icon: "⚙" }].map(item => <Link key={item.href} href={item.href} aria-current={pathname === item.href ? "page" : undefined}><span aria-hidden="true">{item.icon}</span><span>{item.label}</span></Link>)}
       </nav>
     </div>
   );
