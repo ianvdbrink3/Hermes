@@ -419,6 +419,13 @@ export function SimpleHermes({ page }: { page: Page }) {
             </dl>
           </div>
 
+          <Link href="/evaluatie" className={styles.toolCard}>
+            <span>Observatieperiode</span>
+            <strong>Evaluatie & betrouwbaarheid</strong>
+            <p>Volg geldige paperdagen, dagelijkse controles en daadwerkelijke oefenresultaten.</p>
+            <b>Open →</b>
+          </Link>
+
           <Link href="/instellingen/systeem" className={styles.toolCard}>
             <span>Systeemstatus</span>
             <strong>Controleer de werking</strong>
