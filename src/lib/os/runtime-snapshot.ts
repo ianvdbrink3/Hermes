@@ -256,7 +256,7 @@ async function fetchStateFeed() {
     const response = await fetch(stateUrl, {
       headers: { Authorization: `Bearer ${stateKey}`, Accept: "application/json" },
       cache: "no-store",
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(4_000),
     });
     if (!response.ok) return { connected: false, snapshot: {} as JsonRecord, message: `Autonomy state feed returned HTTP ${response.status}.` };
     return { connected: true, snapshot: record(await response.json()), message: undefined };
@@ -267,7 +267,7 @@ async function fetchStateFeed() {
 
 async function fetchResearchRouter() {
   try {
-    const response = await brainHermesFetch("research", "/api/jobs");
+    const response = await brainHermesFetch("research", "/api/jobs", { signal: AbortSignal.timeout(4_000) });
     if (!response.ok) return { connected: false, job: null as JsonRecord | null, message: `Research jobs returned HTTP ${response.status}.` };
     return { connected: true, job: selectResearchRouter(extractJobs(await response.json())), message: undefined };
   } catch (error) {

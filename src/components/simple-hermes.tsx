@@ -156,9 +156,9 @@ export function SimpleHermes({ page }: { page: Page }) {
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (showLoading = false) => {
     const sequence = ++requestSequence.current;
-    setLoading(true);
+    if (showLoading) setLoading(true);
     try {
       const response = await fetch("/api/os/snapshot", { cache: "no-store" });
       if (!response.ok) throw new Error("HTTP " + response.status);
@@ -175,7 +175,7 @@ export function SimpleHermes({ page }: { page: Page }) {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    void refresh(true);
     const tick = () => {
       if (document.visibilityState === "visible") void refresh();
     };
