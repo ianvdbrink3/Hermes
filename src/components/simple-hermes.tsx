@@ -152,25 +152,35 @@ function runtimeMessage(snapshot: Snapshot | null) { return runtimeExplanation(s
 
 export function SimpleHermes({ page }: { page: Page }) {
   const requestSequence = useRef(0);
+  const activeRequest = useRef<AbortController | null>(null);
+  const [refreshError, setRefreshError] = useState(false);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const refresh = useCallback(async (showLoading = false) => {
     const sequence = ++requestSequence.current;
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
     if (showLoading) setLoading(true);
     try {
-      const response = await fetch("/api/os/snapshot", { cache: "no-store" });
+      const response = await fetch("/api/os/snapshot", { cache: "no-store", signal: AbortSignal.any([controller.signal, AbortSignal.timeout(9_000)]) });
       if (!response.ok) throw new Error("HTTP " + response.status);
       const next = (await response.json()) as Snapshot;
       if (sequence !== requestSequence.current) return;
       setSnapshot(next);
+      setRefreshError(false);
       setLastRefresh(new Date());
     } catch {
       if (sequence !== requestSequence.current) return;
-      setSnapshot({ runtime: { state: "OFFLINE", reason: "De centrale OS-state kon niet worden geladen." } });
+      setRefreshError(true);
+      setSnapshot((previous) => previous ?? { runtime: { state: "OFFLINE", reason: "De centrale OS-state kon niet worden geladen." } });
     } finally {
-      if (sequence === requestSequence.current) setLoading(false);
+      if (sequence === requestSequence.current) {
+        activeRequest.current = null;
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -183,11 +193,13 @@ export function SimpleHermes({ page }: { page: Page }) {
     document.addEventListener("visibilitychange", tick);
     return () => {
       requestSequence.current++;
+      activeRequest.current?.abort();
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", tick);
     };
   }, [refresh]);
 
+  const snapshotRefreshNotice = refreshError ? "Verversen mislukt; laatst ontvangen gegevens blijven zichtbaar en kunnen verouderd zijn." : null;
   const source = record(snapshot?.sourceSnapshot);
   const events = (snapshot?.events || []).slice(0, 6);
   const decisions = rows(source.decisions).slice(0, 5);
@@ -237,6 +249,7 @@ export function SimpleHermes({ page }: { page: Page }) {
             <h2>{status}</h2>
             <Link href="/analyses#systeem">Lees de volledige onderzoeksopdracht →</Link>
             <p>{runtimeMessage(snapshot)}</p>
+            {snapshotRefreshNotice && <p role="status">{snapshotRefreshNotice}</p>}
           </div>
 
           <div className={styles.nextStep}>
