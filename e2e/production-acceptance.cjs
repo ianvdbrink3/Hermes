@@ -36,7 +36,8 @@ async function measuredJson(page, pathname) {
       ? { runtime: row(data?.runtime).state, state_feed: row(data?.telemetry).stateFeed }
       : target === '/api/os/g11-shadow'
         ? { fixture: data?.fixture, generated_at: data?.generated_at, scan_rows: list(row(data?.scan).rows).length,
-            research_rows: list(data?.research).length, paper_days: list(data?.history).length }
+            research_rows: row(data?.counts).research_reports ?? list(data?.research).length,
+            paper_days: row(data?.counts).paper_days ?? list(data?.history).length }
         : { fixture: data?.fixture, live_orders_enabled: data?.live_orders_enabled,
             generated_at: data?.generated_at, cases: list(data?.cases).length,
             paper_days: row(data?.counts).paper_days, research: row(data?.counts).research,
@@ -86,14 +87,19 @@ function captureErrors(page, label, sink) {
     assert.equal(councilApi.summary.fixture, false, 'Council fixture data reached production');
     assert.equal(councilApi.summary.live_orders_enabled, false, 'live orders are enabled');
     assert.equal(councilApi.summary.messages, 0, 'unused bulk Council messages reached the browser');
+    const researchApi = endpoints.find(item => item.pathname === '/api/os/g11-shadow');
+    assert.equal(researchApi.summary.research_rows, councilApi.summary.research,
+      'research totals disagree between independently validated feeds');
+    assert.equal(researchApi.summary.paper_days, councilApi.summary.paper_days,
+      'paper-day totals disagree between independently validated feeds');
 
     let archiveRequests = 0;
     page.on('request', request => {
       if (new URL(request.url()).pathname === '/api/os/council/archive') archiveRequests++;
     });
     const councilStarted = performance.now();
-    const councilSnapshot = page.waitForResponse(r => new URL(r.url()).pathname === '/api/os/council');
-    const selectedArchive = page.waitForResponse(r => new URL(r.url()).pathname === '/api/os/council/archive');
+    const councilSnapshot = page.waitForResponse(r => new URL(r.url()).pathname === '/api/os/council', { timeout: 60_000 });
+    const selectedArchive = page.waitForResponse(r => new URL(r.url()).pathname === '/api/os/council/archive', { timeout: 60_000 });
     await page.goto(new URL('/onderzoeksraad', origin).href, { waitUntil: 'domcontentloaded', timeout: 60_000 });
     await page.getByRole('heading', { name: 'De onderzoeksraad' }).waitFor({ timeout: 30_000 });
     await Promise.all([(await councilSnapshot).body(), (await selectedArchive).body()]);

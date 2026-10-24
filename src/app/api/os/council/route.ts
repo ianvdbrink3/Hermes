@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { unstable_cache } from "next/cache";
-import { councilQuery, councilRequest, parseCouncilSnapshot, presentCouncilSnapshot } from "@/lib/os/council";
+import { councilQuery } from "@/lib/os/council";
+import { verifiedCouncilSnapshot } from "@/lib/os/council-cache";
 export const dynamic = "force-dynamic";
 
 // The Vercel Data Cache stores only successfully validated, source-bound
 // read-only snapshots. A transient upstream failure may serve the previous
 // validated response; its original generated_at remains visible.
-const verifiedCouncilSnapshot = unstable_cache(
- async (query: string) => presentCouncilSnapshot(parseCouncilSnapshot(await councilRequest("snapshot", undefined, query))),
- ["hermes-council-verified-read-only-v2"],
- { revalidate: 60 },
-);
 export async function GET(request:NextRequest) {
  let query:string;
  try {query=councilQuery(request.nextUrl.searchParams.get("cursor") ?? "0", request.nextUrl.searchParams.get("q") ?? "");}
