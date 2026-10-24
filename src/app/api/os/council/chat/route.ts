@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { councilRequest, parseCouncilSnapshot } from "@/lib/os/council";
+import { councilRequest, parseCouncilSnapshot, presentCouncilSnapshot } from "@/lib/os/council";
 export const dynamic = "force-dynamic";
 export const maxDuration = 150;
 export async function POST(request:NextRequest) {
@@ -15,7 +15,7 @@ export async function POST(request:NextRequest) {
       typeof value.request_key!=="string" || !/^[a-zA-Z0-9_-]{1,80}$/.test(value.request_key))
      return NextResponse.json({error:"Vul een vraag van maximaal 2.000 tekens in."},{status:400});
    const result=await councilRequest("chat",{text:value.text.trim(),request_key:value.request_key,...(value.case_id ? {case_id:value.case_id} : {})});
-   return NextResponse.json(parseCouncilSnapshot(result),{headers:{"Cache-Control":"no-store"}});
+   return NextResponse.json(presentCouncilSnapshot(parseCouncilSnapshot(result)),{headers:{"Cache-Control":"no-store"}});
  } catch {
    return NextResponse.json({error:"De CIO kon geen antwoord leveren. Er wordt geen extra aanvraag gestart. Controleer het gesprek en het resterende dagbudget."},
      {status:503,headers:{"Cache-Control":"no-store"}});

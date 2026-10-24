@@ -118,6 +118,36 @@ export function parseCouncilSnapshot(value: unknown): CouncilSnapshot {
   return value as unknown as CouncilSnapshot;
 }
 
+function caseSymbol(instrumentId: string) {
+  const value = instrumentId.trim().toUpperCase();
+  return value.split(":").at(-1)?.split("/").at(-1) || value;
+}
+
+/**
+ * Keep the authoritative snapshot intact upstream, but send the browser only
+ * the records used by the Council and paper-trading views. Full message
+ * history remains available through the source-bound archive endpoint.
+ */
+export function presentCouncilSnapshot(snapshot: CouncilSnapshot): CouncilSnapshot {
+  if (!snapshot.overnight) return { ...snapshot, messages: [] };
+
+  const requiredSymbols = new Set(
+    (snapshot.cases || []).map((item) => caseSymbol(item.instrument_id)),
+  );
+  if (!snapshot.overnight.top_opportunities?.length) {
+    for (const item of snapshot.overnight.ranking.slice(0, 10)) requiredSymbols.add(item.symbol);
+  }
+
+  return {
+    ...snapshot,
+    messages: [],
+    overnight: {
+      ...snapshot.overnight,
+      ranking: snapshot.overnight.ranking.filter((item) => requiredSymbols.has(item.symbol)),
+    },
+  };
+}
+
 export function councilQuery(cursor: string = "0", query: string = ""): string {
   if (!/^\d+$/.test(cursor) || Number(cursor) > 100000 || query.length > 100)
     throw new Error("Ongeldige zoekopdracht");

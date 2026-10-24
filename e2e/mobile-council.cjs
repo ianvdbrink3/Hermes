@@ -49,14 +49,20 @@ function signedCookie() {
    await context.addCookies([{name:'hermes_os_session',value:signedCookie(),
      url:origin,httpOnly:true,sameSite:'Lax'}]);
    const page=await context.newPage();
+   let archiveRequests=0;
    await page.route(/\/api\/os\/council(?:\/|\?|$)/, async route=>{
-     const data=route.request().url().includes('/archive?')?archive:snapshot;
+     const isArchive=route.request().url().includes('/archive?');
+     if(isArchive)archiveRequests++;
+     const data=isArchive?archive:snapshot;
      await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});
    });
    const logs=[];
    page.on('pageerror',error=>logs.push(error.message));
+   const firstArchiveResponse=page.waitForResponse(response=>response.url().includes('/api/os/council/archive?'));
    await page.goto(origin+'/onderzoeksraad',{waitUntil:'domcontentloaded',timeout:180000});
    await page.getByRole('button',{name:/Cheniere Energy/}).waitFor({timeout:120000});
+   await (await firstArchiveResponse).body();
+   assert.equal(archiveRequests,1,'initial Council load fetched more than the selected archive');
    const overflow=()=>page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth);
    assert.equal(await overflow(),true,'council horizontal overflow '+vp.width);
    if (vp.width===390) {
