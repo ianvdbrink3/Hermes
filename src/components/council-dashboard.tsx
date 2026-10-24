@@ -70,8 +70,13 @@ export function CouncilDashboard({active="onderzoek"}:{active?:"onderzoek"|"trad
  useEffect(()=>{
   if(!data?.cases?.length)return;
   setCaseId(old=>data.cases!.some(c=>c.case_id===old)?old:data.cases!.find(c=>c.case_id===new URLSearchParams(window.location.search).get("case"))?.case_id||data.cases!.at(-1)!.case_id);
+ },[data?.cases]);
+ useEffect(()=>{
+  if(!data?.cases?.length||!caseId)return;
   const controller=new AbortController();
-  const cases=data.cases.filter(c=>!archives[c.case_id]||c.status!=="RESEARCH_COMPLETE"||c.case_id===caseId);
+  const selectedCase=data.cases.find(c=>c.case_id===caseId);
+  const candidates=active==="trading"?data.cases:(selectedCase?[selectedCase]:[]);
+  const cases=candidates.filter(c=>!archives[c.case_id]||c.status!=="RESEARCH_COMPLETE");
   async function read(c:{case_id:string}){try{
    const r=await fetch("/api/os/council/archive?"+new URLSearchParams({case:c.case_id}),{cache:"no-store",signal:controller.signal});
    if(!r.ok)throw new Error();
@@ -80,9 +85,11 @@ export function CouncilDashboard({active="onderzoek"}:{active?:"onderzoek"|"trad
   }catch{if(!controller.signal.aborted)setArchiveErrors(prev=>({...prev,[c.case_id]:"Het gesprek kan momenteel niet worden geladen."}));}}
   async function batch(){for(let i=0;i<cases.length&&!controller.signal.aborted;i+=3)await Promise.all(cases.slice(i,i+3).map(read));}
   void batch();return()=>controller.abort();
- // Archives are loaded once; subsequent snapshots refresh unfinished threads.
+ // Research loads only the selected archive. Trading progressively loads all
+ // decision archives because trigger prices are not part of the list payload.
+ // Completed archives are reused; subsequent snapshots refresh unfinished ones.
  // eslint-disable-next-line react-hooks/exhaustive-deps
- },[data?.generated_at]);
+ },[active,caseId,data?.generated_at]);
  async function send(event:FormEvent){
   event.preventDefault();const text=question.trim();if(!text||sending||!caseId||!data)return;
   if(!request.current||request.current.text!==text||request.current.caseId!==caseId)request.current={text,caseId,key:crypto.randomUUID()};

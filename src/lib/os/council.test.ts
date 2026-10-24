@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCouncilSnapshot, parseCouncilOpportunities, parseCouncilBriefing } from "./council";
+import { parseCouncilSnapshot, parseCouncilOpportunities, parseCouncilBriefing, presentCouncilSnapshot } from "./council";
 
 const valid = {
  schema_version: 3, mode: "council", fixture: false, live_orders_enabled: false,
@@ -88,4 +88,26 @@ it("rejects a 7-part daily briefing with missing verified sections",()=>{
 
 it("rejects string quota values",()=>{
  expect(()=>parseCouncilSnapshot({...valid,budget:{...valid.budget,limit:"20"}})).toThrow();
+});
+
+it("presents only browser-used Council data while preserving source truth",()=>{
+ const opportunity=(symbol:string)=>({symbol,name:symbol,currency:"USD",score:1,
+  valuation_score:1,quality_score:1,momentum_score:1,completeness_pct:100,
+  financial:{},quant:{price:100},macro:{},missing_fields:[]});
+ const source=parseCouncilSnapshot({...valid,
+  cases:[{case_id:"case-aapl",instrument_id:"XNAS:AAPL",generated_at:valid.generated_at,
+   status:"RESEARCH_COMPLETE",evidence_hash:"a".repeat(64)}],
+  messages:[{message_id:"user-1",role:"USER",text_nl:"Vraag",generated_at:valid.generated_at,
+   attempt_id:null,evidence_refs:[],fixture:false,reply_to:null}],
+  overnight:{schema_version:1,generated_at:valid.generated_at,
+   counts:{verified_universe:3,enriched:3,complete:3},
+   ranking:[opportunity("MSFT"),opportunity("AAPL"),opportunity("NVDA")],
+   top_opportunities:[opportunity("NVDA")]},
+ });
+ const presented=presentCouncilSnapshot(source);
+ expect(presented.messages).toEqual([]);
+ expect(presented.overnight?.ranking.map(row=>row.symbol)).toEqual(["AAPL"]);
+ expect(presented.overnight?.top_opportunities?.map(row=>row.symbol)).toEqual(["NVDA"]);
+ expect(source.messages).toHaveLength(1);
+ expect(source.overnight?.ranking).toHaveLength(3);
 });
