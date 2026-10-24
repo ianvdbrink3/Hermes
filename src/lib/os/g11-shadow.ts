@@ -1,4 +1,5 @@
 import { parseLiteSnapshot, type LiteSnapshot } from "./g11-lite";
+import type { CouncilSnapshot } from "./council";
 export type ShadowSnapshot = {
   schema_version: 1; generated_at: string; read_only: true; live_orders_enabled: false;
   latest: Record<string, unknown>; history: Record<string, unknown>[];
@@ -34,6 +35,21 @@ export function parseG11Snapshot(value: unknown): ShadowSnapshot | LiteSnapshot 
     return lite;
   }
   return parseShadowSnapshot(value);
+}
+
+export function reconcileShadowCouncilCounts(
+  shadow: ShadowSnapshot | LiteSnapshot,
+  council: CouncilSnapshot,
+): ShadowSnapshot | LiteSnapshot {
+  if (shadow.schema_version !== 2) return shadow;
+  return {
+    ...shadow,
+    counts: {
+      ...shadow.counts,
+      research_reports: council.counts.research,
+      paper_days: council.counts.paper_days,
+    },
+  };
 }
 
 export async function fetchShadowSnapshot(): Promise<ShadowSnapshot | LiteSnapshot> {

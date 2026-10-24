@@ -58,11 +58,19 @@ function signedCookie() {
    });
    const logs=[];
    page.on('pageerror',error=>logs.push(error.message));
-   const firstArchiveResponse=page.waitForResponse(response=>response.url().includes('/api/os/council/archive?'));
+   const firstArchiveResponse=page.waitForResponse(response=>response.url().includes('/api/os/council/archive?'),{timeout:120000});
    await page.goto(origin+'/onderzoeksraad',{waitUntil:'domcontentloaded',timeout:180000});
    await page.getByRole('button',{name:/Cheniere Energy/}).waitFor({timeout:120000});
    await (await firstArchiveResponse).body();
    assert.equal(archiveRequests,1,'initial Council load fetched more than the selected archive');
+   const conversationButton=page.getByRole('button',{name:/Cheniere Energy/});
+   const conversationUsesAccent=await conversationButton.evaluate(element=>{
+     const probe=document.createElement('span');
+     probe.style.background='var(--ui-accent)';document.body.appendChild(probe);
+     const accent=getComputedStyle(probe).backgroundColor;probe.remove();
+     return getComputedStyle(element).backgroundColor===accent;
+   });
+   assert.equal(conversationUsesAccent,false,'generic button styling leaked into the Council list');
    const overflow=()=>page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth);
    assert.equal(await overflow(),true,'council horizontal overflow '+vp.width);
    if (vp.width===390) {
@@ -85,10 +93,12 @@ function signedCookie() {
    assert(!/forward_pe:ABSENT_|quote_summary_raw_sha256:/.test(await page.locator('body').innerText()));
    await page.goto(origin+'/trading',{waitUntil:'domcontentloaded',timeout:180000});
    await page.getByText('3 / 20',{exact:true}).waitFor({timeout:120000});
+   await page.getByText('Cheniere Energy',{exact:false}).first().waitFor({timeout:120000});
    assert.equal(await overflow(),true,'trading horizontal overflow '+vp.width);
    const body=await page.locator('body').innerText();
    assert(body.includes('100.000'),'synthetic cash not rendered');
    assert(body.includes('3 / 20'),'synthetic paper-days not rendered');
+   assert(!body.includes('Er zijn nog geen opgeslagen volglijstvoorwaarden geladen.'),'known watchlist was hidden while its archive loaded');
    assert(!/forward_pe:ABSENT_|quote_summary_raw_sha256:/.test(body));
    assert.deepEqual(logs,[],'page errors');
    console.log('PASS',JSON.stringify({viewport:vp,council_overflow:false,trading_overflow:false,

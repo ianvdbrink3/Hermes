@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseCouncilSnapshot, parseCouncilOpportunities, parseCouncilBriefing, presentCouncilSnapshot } from "./council";
+import { reconcileShadowCouncilCounts } from "./g11-shadow";
 
 const valid = {
  schema_version: 3, mode: "council", fixture: false, live_orders_enabled: false,
@@ -110,4 +111,12 @@ it("presents only browser-used Council data while preserving source truth",()=>{
  expect(presented.overnight?.top_opportunities?.map(row=>row.symbol)).toEqual(["NVDA"]);
  expect(source.messages).toHaveLength(1);
  expect(source.overnight?.ranking).toHaveLength(3);
+});
+
+it("uses the current Council totals in the legacy overview projection",()=>{
+ const shadow={schema_version:2,counts:{scan_runs:1,tracked_stocks:20,research_reports:0,paper_days:0}} as never;
+ const council=parseCouncilSnapshot({...valid,counts:{...valid.counts,research:19,paper_days:8}});
+ const result=reconcileShadowCouncilCounts(shadow,council);
+ expect(result.schema_version).toBe(2);
+ if(result.schema_version===2) expect(result.counts).toMatchObject({research_reports:19,paper_days:8,tracked_stocks:20});
 });
